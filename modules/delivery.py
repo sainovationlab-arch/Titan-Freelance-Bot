@@ -5,9 +5,9 @@ from modules.services import get_gspread_client, get_gmail_service
 def run_delivery():
     print("Running Delivery...")
     gc = get_gspread_client()
-    sheet_name = os.getenv('SHEET_NAME', 'Clients')
+    SHEET_ID = '1N3_jJkYNCtp1MQXEObtDH9FC_VzPyL2RLBW_MdfvfCM'
     try:
-        sh = gc.open(sheet_name)
+        sh = gc.open_by_key(SHEET_ID)
         worksheet = sh.sheet1
     except Exception:
         return

@@ -21,12 +21,12 @@ def send_email(service, to, subject, body):
 def run_outreach():
     print("Running Outreach...")
     gc = get_gspread_client()
-    sheet_name = os.getenv('SHEET_NAME', 'Clients')
+    SHEET_ID = '1N3_jJkYNCtp1MQXEObtDH9FC_VzPyL2RLBW_MdfvfCM'
     try:
-        sh = gc.open(sheet_name)
+        sh = gc.open_by_key(SHEET_ID)
         worksheet = sh.sheet1
     except Exception as e:
-        print(f"Error opening sheet {sheet_name}: {e}")
+        print(f"Error opening sheet {SHEET_ID}: {e}")
         return
 
     records = worksheet.get_all_records()

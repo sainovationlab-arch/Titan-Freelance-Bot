@@ -80,9 +80,9 @@ def send_dm(driver, profile_url, message):
 def run_followup():
     print("Running Followup...")
     gc = get_gspread_client()
-    sheet_name = os.getenv('SHEET_NAME', 'Clients')
+    SHEET_ID = '1N3_jJkYNCtp1MQXEObtDH9FC_VzPyL2RLBW_MdfvfCM'
     try:
-        sh = gc.open(sheet_name)
+        sh = gc.open_by_key(SHEET_ID)
         worksheet = sh.sheet1
     except Exception:
         return
