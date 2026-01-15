@@ -36,7 +36,7 @@ def get_email_content(payload):
                     return base64.urlsafe_b64decode(data).decode()
     return ""
 
-def run_replier():
+def process_replies():
     print("Running Replier...")
     gmail_service = get_gmail_service()
     gc = get_gspread_client()
@@ -142,4 +142,4 @@ def run_replier():
             print(f"Replied to {from_email}")
 
 if __name__ == "__main__":
-    run_replier()
+    process_replies()

@@ -20,8 +20,12 @@ def send_email(service, to, subject, body):
         print(f"An error occurred: {e}")
         return False
 
-def run_outreach():
+def send_outreach_emails():
     print("Running Outreach...")
+    # Get today's date in YYYY-MM-DD format
+    today = datetime.date.today().strftime("%Y-%m-%d")
+
+    # Authenticate with Google Sheets
     gc = get_gspread_client()
     SHEET_ID = '1N3_jJkYNCtp1MQXEObtDH9FC_VzPyL2RLBW_MdfvfCM'
     try:
@@ -31,27 +35,30 @@ def run_outreach():
         print(f"Error opening sheet {SHEET_ID}: {e}")
         return
 
-    records = worksheet.get_all_records()
-    # Assuming headers: 'Email Sending Date', 'Gmail Account', 'Client Name', 'Email', 'Selected Skill', 'Portfolio Link', 'Status'
-    
-    today = datetime.date.today().strftime("%Y-%m-%d")
-    
-    # We need to use row index to update, so let's iterate with enumeration or range
-    # get_all_records returns list of dicts. 
-    # To update, we might need the cell coordinates. 
-    # A simple way for small sheets is iterating rows directly.
-    
+    # Get all records from the worksheet
     rows = worksheet.get_all_values()
+    if not rows:
+        print("No data found in the worksheet.")
+        return
+
     headers = rows[0]
-    
     try:
-        date_col_idx = headers.index('Email Sending Date')
+        date_col_idx = headers.index('Date')
         status_col_idx = headers.index('Status')
         email_col_idx = headers.index('Email')
         gmail_col_idx = headers.index('Gmail Account')
         name_col_idx = headers.index('Client Name')
         skill_col_idx = headers.index('Selected Skill')
         portfolio_col_idx = headers.index('Portfolio Link')
+        
+        # Optional columns for dynamic content
+        try:
+            subject_col_idx = headers.index('Email Subject')
+            body_col_idx = headers.index('Email Body')
+        except ValueError:
+            subject_col_idx = -1
+            body_col_idx = -1
+            
     except ValueError as e:
         print(f"Missing column in sheet: {e}")
         return
@@ -92,8 +99,37 @@ def run_outreach():
                 print(f"Skipping row {i}: Could not authenticate for {sender_email}")
                 continue
 
-            subject = f"Proposal for {skill}"
-            body = f"Hi {client_name},\n\nI noticed you might need help with {skill}. Check out my portfolio: {portfolio}.\n\nBest,\nTitan Bot"
+            # Dynamic Content Logic
+            subject_template = ""
+            body_template = ""
+            
+            if subject_col_idx != -1 and len(row) > subject_col_idx:
+                subject_template = row[subject_col_idx]
+            
+            if body_col_idx != -1 and len(row) > body_col_idx:
+                body_template = row[body_col_idx]
+                
+            # Default Templates
+            if not subject_template:
+                subject_template = f"Proposal for {skill}"
+            
+            if not body_template:
+                body_template = f"Hi {{Name}},\n\nI noticed you might need help with {{Skill}}. Check out my portfolio: {{Portfolio}}.\n\nBest,\nTitan Bot"
+
+            # Placeholder Replacement
+            # Placeholders: {{Name}}, {{Skill}}, {{Portfolio}}
+            replacements = {
+                "{{Name}}": client_name,
+                "{{Skill}}": skill,
+                "{{Portfolio}}": portfolio
+            }
+            
+            subject = subject_template
+            body = body_template
+            
+            for key, val in replacements.items():
+                subject = subject.replace(key, val)
+                body = body.replace(key, val)
             
             if send_email(current_service, client_email, subject, body):
                 worksheet.update_cell(i, status_col_idx + 1, "Sent") 
@@ -104,4 +140,4 @@ def run_outreach():
                 time.sleep(wait_time) 
 
 if __name__ == "__main__":
-    run_outreach()
+    send_outreach_emails()

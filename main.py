@@ -1,38 +1,22 @@
-import time
-import schedule
-import os
-from dotenv import load_dotenv
-from modules.outreach import run_outreach
-from modules.replier import run_replier
-from modules.delivery import run_delivery
-from modules.followup import run_followup
+import sys
+from modules.outreach import send_outreach_emails
+from modules.replier import process_replies
 
-load_dotenv()
+print('🟢 BOT STARTING: One-Time Execution Mode')
 
-def job():
-    print(f"Starting job cycle at {time.strftime('%Y-%m-%d %H:%M:%S')}")
-    run_outreach()
-    run_replier()
-    run_delivery()
-    run_followup()
-    print("Job cycle complete.\n")
+try:
+    print('--- Step 1: Outreach ---')
+    send_outreach_emails()
+    print('✅ Outreach Finished')
+except Exception as e:
+    print(f'❌ Outreach Error: {e}')
 
-def main():
-    print("Titan Freelance Bot Started.")
-    
-    # Schedule jobs
-    # For testing, we can run immediately once
-    job()
-    
-    # Schedule to run every hour
-    schedule.every(1).hours.do(job)
-    
-    # Or specific times
-    # schedule.every().day.at("09:00").do(job)
-    
-    while True:
-        schedule.run_pending()
-        time.sleep(60)
+try:
+    print('--- Step 2: Replier ---')
+    process_replies()
+    print('✅ Replier Finished')
+except Exception as e:
+    print(f'❌ Replier Error: {e}')
 
-if __name__ == "__main__":
-    main()
+print('🔴 ALL TASKS DONE. EXITING.')
+sys.exit(0)
