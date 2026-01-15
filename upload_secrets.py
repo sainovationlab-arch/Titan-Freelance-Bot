@@ -29,6 +29,19 @@ def upload_secrets():
     print("Uploading GCP_TOKEN...")
     subprocess.run(['gh', 'secret', 'set', 'GCP_TOKEN'], input=token_base64, text=True, check=True)
 
+    # Upload APP_TOKENS_JSON
+    print("Uploading APP_TOKENS_JSON...")
+    tokens = {}
+    tokens_dir = 'tokens'
+    if os.path.exists(tokens_dir):
+        for filename in os.listdir(tokens_dir):
+            if filename.endswith('.json'):
+                with open(os.path.join(tokens_dir, filename), 'r') as f:
+                    tokens[filename] = f.read()
+    
+    tokens_json = json.dumps(tokens)
+    subprocess.run(['gh', 'secret', 'set', 'APP_TOKENS_JSON'], input=tokens_json, text=True, check=True)
+
     print("✅ Secrets Uploaded Successfully!")
 
 if __name__ == "__main__":

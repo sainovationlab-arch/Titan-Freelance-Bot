@@ -28,5 +28,11 @@ jobs:
         echo "${{ secrets.GCP_CREDENTIALS }}" > credentials.json
         echo "${{ secrets.GCP_TOKEN }}" | base64 -d > token.pickle
 
+    - name: Restore Tokens
+      env:
+        APP_TOKENS_JSON: ${{ secrets.APP_TOKENS_JSON }}
+      run: |
+        python -c "import os, json; tokens = json.loads(os.environ['APP_TOKENS_JSON']); os.makedirs('tokens', exist_ok=True); [open(f'tokens/{k}', 'w').write(v) for k, v in tokens.items()]"
+
     - name: Run script
       run: python main.py

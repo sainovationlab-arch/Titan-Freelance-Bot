@@ -1,7 +1,9 @@
 import datetime
 import base64
+import time
+import random
 from email.mime.text import MIMEText
-from modules.services import get_gspread_client, get_gmail_service
+from modules.services import get_gspread_client, get_gmail_service, get_service_for_email
 import os
 
 def send_email(service, to, subject, body):
@@ -46,6 +48,7 @@ def run_outreach():
         date_col_idx = headers.index('Email Sending Date')
         status_col_idx = headers.index('Status')
         email_col_idx = headers.index('Email')
+        gmail_col_idx = headers.index('Gmail Account')
         name_col_idx = headers.index('Client Name')
         skill_col_idx = headers.index('Selected Skill')
         portfolio_col_idx = headers.index('Portfolio Link')
@@ -53,7 +56,8 @@ def run_outreach():
         print(f"Missing column in sheet: {e}")
         return
 
-    gmail_service = get_gmail_service()
+    # Removed global gmail_service initialization
+    # gmail_service = get_gmail_service()
 
     for i, row in enumerate(rows[1:], start=2): # 1-based index, skip header
         if len(row) <= status_col_idx:
@@ -70,11 +74,34 @@ def run_outreach():
             skill = row[skill_col_idx]
             portfolio = row[portfolio_col_idx]
             
+            # Dynamic Sender Selection
+            try:
+                sender_email = row[gmail_col_idx]
+            except IndexError:
+                print(f"Row {i}: Missing Gmail Account")
+                continue
+
+            if not sender_email:
+                print(f"Row {i}: Empty Gmail Account cell")
+                continue
+
+            print(f"Processing row {i}: Sending from {sender_email} to {client_email}")
+            
+            current_service = get_service_for_email(sender_email)
+            if not current_service:
+                print(f"Skipping row {i}: Could not authenticate for {sender_email}")
+                continue
+
             subject = f"Proposal for {skill}"
             body = f"Hi {client_name},\n\nI noticed you might need help with {skill}. Check out my portfolio: {portfolio}.\n\nBest,\nTitan Bot"
             
-            if send_email(gmail_service, client_email, subject, body):
+            if send_email(current_service, client_email, subject, body):
                 worksheet.update_cell(i, status_col_idx + 1, "Sent") 
+                
+                # Wait for random intervals
+                wait_time = random.randint(180, 360)
+                print(f"Waiting for {wait_time} seconds before next email...")
+                time.sleep(wait_time) 
 
 if __name__ == "__main__":
     run_outreach()
