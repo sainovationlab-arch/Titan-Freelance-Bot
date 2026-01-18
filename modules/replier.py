@@ -22,7 +22,36 @@ def process_replies():
         print(f"❌ Error connecting to Sheet: {e}")
         return
 
+    # Get Sheet Data First (VIP Whitelist)
+    rows = worksheet.get_all_values()
+    headers = rows[0]
+    
+    try:
+        email_col_idx = headers.index('Email')
+        status_col_idx = headers.index('Status')
+        name_col_idx = headers.index('Client Name')
+    except ValueError as e:
+        print(f"❌ Missing column in sheet: {e}")
+        return
+
+    # Build VIP Whitelist
+    valid_clients = {} # {email: row_index} with row_index being actual integer index in 'rows'
+    
+    for i, row in enumerate(rows[1:], start=2): # Start=2 because row 1 is header, so index 2 matches sheet row 2
+        # Safety check for short rows
+        if len(row) > email_col_idx:
+            raw_email = row[email_col_idx]
+            clean_email = str(raw_email).strip().lower()
+            if clean_email:
+                valid_clients[clean_email] = i
+    
+    print(f"📋 Loaded {len(valid_clients)} Client Emails from Sheet.")
+
     # 2. Check Inbox for UNREAD emails
+    if len(valid_clients) == 0:
+        print("⚠️ No valid clients found in sheet. Stopping.")
+        return
+
     try:
         # q='is:unread' or labelIds=['UNREAD']
         results = gmail_service.users().messages().list(userId='me', labelIds=['UNREAD'], q='-category:promotions -category:social').execute()
@@ -35,19 +64,7 @@ def process_replies():
         print("📭 No unread messages found.")
         return
 
-    print(f"📥 Found {len(messages)} unread messages.")
-
-    # Get Sheet Data
-    rows = worksheet.get_all_values()
-    headers = rows[0]
-    
-    try:
-        email_col_idx = headers.index('Email')
-        status_col_idx = headers.index('Status')
-        name_col_idx = headers.index('Client Name')
-    except ValueError as e:
-        print(f"❌ Missing column in sheet: {e}")
-        return
+    print(f"📥 Found {len(messages)} unread messages. Scanning for VIPs...")
 
     # 3. Process each message
     for msg in messages:
@@ -61,8 +78,6 @@ def process_replies():
             if not sender_header:
                 continue
             
-            print(f"📩 New Reply Found from: {sender_header}")
-
             # Extract Clean Email
             if '<' in sender_header and '>' in sender_header:
                 from_email = sender_header.split('<')[1].split('>')[0]
@@ -70,43 +85,39 @@ def process_replies():
                 from_email = sender_header
             
             from_email = from_email.strip().lower()
-            print(f"🧹 Cleaned Email: {from_email}")
             
-            # Search for this email in the Google Sheet
-            match_found = False
-            consecutive_empty = 0
-            
-            for i, row in enumerate(rows[1:], start=2): # 1-based index, skip header
-                sheet_email_raw = row[email_col_idx]
-                sheet_email = str(sheet_email_raw).strip().lower()
+            # Smart Scan (VIP Check)
+            if from_email in valid_clients:
+                # MATCH FOUND
+                row_idx = valid_clients[from_email]
                 
-                if not sheet_email:
-                    consecutive_empty += 1
-                    if consecutive_empty > 5:
-                        # Optimization: Stop scanning if we hit 5 blank rows
-                        break
-                    continue
+                # Get Client Name from the stored row index
+                # Note: 'rows' is 0-indexed list of lists.
+                # 'i' in the loop above was 'start=2'.
+                # So if valid_clients has '2', it corresponds to rows[1] (since rows[0] is header).
+                # Wait: 'rows' list index 0 is Header. 
+                # 'enumerate(rows[1:], start=2)' means:
+                # Valid Client 'foo' found at start=2. 
+                # In 'rows' list, that is rows[1] (Header is rows[0]).
+                # So rows index = row_idx - 1.
+                
+                rows_list_idx = row_idx - 1
+                if rows_list_idx < len(rows):
+                    client_name = rows[rows_list_idx][name_col_idx]
                 else:
-                    consecutive_empty = 0
+                    client_name = "Unknown"
+
+                # Update 'Status' to 'Replied'
+                worksheet.update_cell(row_idx, status_col_idx + 1, "Replied")
                 
-                print(f"🔍 Checking against Sheet Email: {sheet_email}")
+                # Mark email as READ
+                gmail_service.users().messages().modify(userId='me', id=msg['id'], body={'removeLabelIds': ['UNREAD']}).execute()
                 
-                if sheet_email == from_email:
-                    # MATCH FOUND
-                    match_found = True
-                    client_name = row[name_col_idx]
-                    
-                    # Update 'Status' to 'Replied'
-                    worksheet.update_cell(i, status_col_idx + 1, "Replied")
-                    
-                    # Mark email as READ
-                    gmail_service.users().messages().modify(userId='me', id=msg['id'], body={'removeLabelIds': ['UNREAD']}).execute()
-                    
-                    print(f"✅ Reply received from {client_name} ({from_email}). Sheet updated to 'Replied'.")
-                    break
+                print(f"✅ MATCH FOUND! Reply received from {client_name} ({from_email}). Sheet updated.")
             
-            if not match_found:
-                print(f"⚠️ Ignored email from {from_email} (No match in sheet).")
+            else:
+                # Ignore silently
+                pass
 
         except Exception as e:
             print(f"❌ Error processing message {msg['id']}: {e}")
