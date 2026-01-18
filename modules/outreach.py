@@ -134,21 +134,25 @@ def send_outreach_emails():
             sender_signature = get_sender_signature(sender_email)
 
             # Construct Email Content
-            subject = f"Quick collab for {skill}?"
+            subject = f"Quick idea for {client_name}"
             
             body = f"""Hi {client_name},
 
-I was looking at your work and I love what you are doing.
+I’ve been following {client_name} for a while and I genuinely love the work you are doing in the {skill} space. Your recent posts really caught my eye! 🔥
 
-Usually, I charge {first_price} for {skill}, but I want to build more case studies in your niche. So, I can do this for you for just {offer_price}.
+I noticed a small opportunity to help you stand out even more.
 
-As a bonus, I will include {free_gift} for free.
+I am currently building a few premium case studies for my portfolio, and I’d love to include your brand.
 
-Here is my latest work: {portfolio}
+Usually, for a project like this, I charge around {first_price}, but since I really want to add your logo to my portfolio, I can offer you a generic "Case Study" partner price of just {offer_price}.
 
-Are you open to a quick 5-min chat?
+This would include: ✅ Premium {skill} ✅ {free_gift} (My treat!) ✅ Unlimited Revisions
 
-Best Regards, {sender_signature}"""
+You can check my best work here: {portfolio}
+
+No pressure at all—just thought it would be a great fit. Are you open to a quick 5-min chat to discuss?
+
+Best regards, {sender_signature}"""
 
             if send_email(current_service, client_email, subject, body):
                 worksheet.update_cell(i, status_col_idx + 1, "Sent") 
