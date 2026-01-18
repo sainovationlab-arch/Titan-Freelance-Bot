@@ -1,10 +1,58 @@
 import os
 import time
+import base64
+from email.mime.text import MIMEText
 from email.utils import parseaddr
+import google.generativeai as genai
 from modules.services import get_gmail_service, get_gspread_client
 
+# Configure Gemini
+# Ensure GEMINI_API_KEY is set in environment variables
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+def get_email_body(payload):
+    """Recursively attempts to find the text/plain part of the email body."""
+    parts = payload.get('parts')
+    if not parts:
+        data = payload.get('body').get('data')
+        if data:
+            return base64.urlsafe_b64decode(data).decode()
+    else:
+        for part in parts:
+            if part['mimeType'] == 'text/plain':
+                data = part.get('body').get('data')
+                if data:
+                    return base64.urlsafe_b64decode(data).decode()
+            elif part.get('parts'):
+                # recurse if nested
+                return get_email_body(part)
+    return ""
+
+def create_draft(service, user_id, message_body):
+    """Creates a draft email."""
+    try:
+        message = {'message': message_body}
+        draft = service.users().drafts().create(userId=user_id, body=message).execute()
+        print(f"Draft id: {draft['id']} created.")
+        return draft
+    except Exception as e:
+        print(f"An error occurred creating draft: {e}")
+        return None
+
+def create_message(sender, to, subject, message_text, thread_id=None):
+    """Create a message for an email."""
+    message = MIMEText(message_text)
+    message['to'] = to
+    message['from'] = sender
+    message['subject'] = subject
+    if thread_id:
+        message['threadId'] = thread_id
+        
+    raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
+    return {'raw': raw}
+
 def process_replies():
-    print("Running Replier Bot...")
+    print("Running Replier Bot (AI Negotiator)...")
     
     # 1. Login to Gmail and Sheets
     gmail_service = get_gmail_service()
@@ -26,17 +74,22 @@ def process_replies():
     rows = worksheet.get_all_values()
     headers = rows[0]
     
-    # Get Sheet Data First (VIP Whitelist)
-    rows = worksheet.get_all_values()
-    headers = rows[0]
-    
     try:
         email_col_idx = headers.index('Email')
         status_col_idx = headers.index('Status')
         name_col_idx = headers.index('Client Name')
         gmail_col_idx = headers.index('Gmail Account')
+        
+        # AI Data Columns
+        skill_col_idx = headers.index('Selected Skill')
+        offer_price_col_idx = headers.index('Offer Price')
+        final_price_col_idx = headers.index('Final Price') # Assuming this exists or using Offer Price as fallback? User said "Final Price" exists.
+        portfolio_col_idx = headers.index('Portfolio Link')
+        
     except ValueError as e:
         print(f"❌ Missing column in sheet: {e}")
+        # Careful: If Final Price doesn't exist, code breaks. 
+        # I'll proceed assuming it exists as per request.
         return
 
     # --- Account Matching Logic ---
@@ -102,6 +155,7 @@ def process_replies():
             msg_detail = gmail_service.users().messages().get(userId='me', id=msg['id']).execute()
             payload = msg_detail['payload']
             headers_list = payload.get('headers', [])
+            subject = next((h['value'] for h in headers_list if h['name'] == 'Subject'), "Re: Conversation")
             
             sender_header = next((h['value'] for h in headers_list if h['name'] == 'From'), None)
             
@@ -124,26 +178,58 @@ def process_replies():
                 print("✅ MATCH!")
                 # MATCH FOUND
                 row_idx = valid_clients[from_email]
-                
-                # Get Client Name from the stored row index
-                # Note: 'rows' is 0-indexed list of lists.
-                # 'i' in the loop above was 'start=2'.
-                # So if valid_clients has '2', it corresponds to rows[1] (since rows[0] is header).
-                # So rows index = row_idx - 1.
-                
                 rows_list_idx = row_idx - 1
+                row_data = rows[rows_list_idx]
+                
                 if rows_list_idx < len(rows):
-                    client_name = rows[rows_list_idx][name_col_idx]
+                    client_name = row_data[name_col_idx]
+                    skill = row_data[skill_col_idx]
+                    offer_price = row_data[offer_price_col_idx]
+                    # Handle Final Price missing gracefully if needed, but assuming strict structure
+                    final_price = row_data[final_price_col_idx] if len(row_data) > final_price_col_idx else offer_price
+                    portfolio = row_data[portfolio_col_idx]
                 else:
                     client_name = "Unknown"
+                    skill = "Project"
+                    offer_price = "$?"
+                    final_price = "$?"
+                    portfolio = ""
 
-                # Update 'Status' to 'Replied'
-                worksheet.update_cell(row_idx, status_col_idx + 1, "Replied")
+                # 1. Fetch Request Body
+                email_body = get_email_body(payload)
                 
-                # Mark email as READ
+                # 2. Generate AI Reply
+                print(f"🧠 Generating AI Reply for {client_name} regarding {skill}...")
+                model = genai.GenerativeModel('gemini-pro')
+                prompt = f"""You are a friendly and professional sales assistant for {current_bot_email}. The client replied: "{email_body}". 
+Your Goal: Close the deal for "{skill}". 
+
+Negotiation Rules:
+1. If they ask for a lower price, try to close at {offer_price} first.
+2. If they resist, drop slightly but NEVER go below {final_price}.
+3. If they ask for work samples, give this link: {portfolio}.
+
+Keep the tone short, friendly, and human-like.
+End with a question to keep conversation going."""
+
+                try:
+                    response = model.generate_content(prompt)
+                    ai_reply_text = response.text
+                except Exception as e:
+                    print(f"❌ AI Generation Failed: {e}")
+                    ai_reply_text = "Hi, thanks for your email! I'll get back to you shortly."
+
+                # 3. Create Draft (Safety Mode)
+                msg_object = create_message(current_bot_email, from_email, subject, ai_reply_text, thread_id=msg_detail['threadId'])
+                create_draft(gmail_service, 'me', msg_object)
+
+                # 4. Update Status
+                worksheet.update_cell(row_idx, status_col_idx + 1, "Draft Ready")
+                
+                # 5. Mark as Read
                 gmail_service.users().messages().modify(userId='me', id=msg['id'], body={'removeLabelIds': ['UNREAD']}).execute()
                 
-                print(f"✅ MATCH FOUND! Reply received from {client_name} ({from_email}). Sheet updated.")
+                print(f"🤖 AI Draft created for {client_name}. Check drafts folder! Sheet updated to 'Draft Ready'.")
             
             else:
                 # Ignore silently
