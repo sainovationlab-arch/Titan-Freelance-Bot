@@ -26,13 +26,43 @@ def process_replies():
     rows = worksheet.get_all_values()
     headers = rows[0]
     
+    # Get Sheet Data First (VIP Whitelist)
+    rows = worksheet.get_all_values()
+    headers = rows[0]
+    
     try:
         email_col_idx = headers.index('Email')
         status_col_idx = headers.index('Status')
         name_col_idx = headers.index('Client Name')
+        gmail_col_idx = headers.index('Gmail Account')
     except ValueError as e:
         print(f"❌ Missing column in sheet: {e}")
         return
+
+    # --- Account Matching Logic ---
+    try:
+        profile = gmail_service.users().getProfile(userId='me').execute()
+        current_bot_email = profile.get('emailAddress')
+        
+        # Get Target Email from Sheet (First Data Row)
+        if len(rows) > 1 and len(rows[1]) > gmail_col_idx:
+            target_sheet_email = rows[1][gmail_col_idx].strip()
+        else:
+            print("❌ Sheet is empty or missing Gmail Account in first row.")
+            return
+
+        print(f"🕵️ LOGGED IN AS: {current_bot_email}")
+        print(f"📋 SHEET REQUIRES: {target_sheet_email}")
+
+        if current_bot_email.lower().strip() != target_sheet_email.lower():
+            print(f"❌ CRITICAL ERROR: Token Mismatch! I am logged in as {current_bot_email}, but the Sheet says I should be {target_sheet_email}.")
+            print(f"💡 ACTION: Please generate a NEW token for {target_sheet_email} and update GitHub Secrets.")
+            return # EXIT immediately
+
+    except Exception as e:
+        print(f"❌ Error verifying account identity: {e}")
+        return
+    # ------------------------------
 
     # Build VIP Whitelist
     valid_clients = {} # {email: row_index} with row_index being actual integer index in 'rows'
