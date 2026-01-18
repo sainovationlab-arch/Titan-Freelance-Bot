@@ -86,7 +86,9 @@ def send_outreach_emails():
         return
 
     consecutive_empty = 0
+    pending_tasks = []
 
+    # Pass 1: Identify Valid Rows
     for i, row in enumerate(rows[1:], start=2): # 1-based index, skip header
         if len(row) <= status_col_idx:
             # Row might be short, pad it
@@ -108,50 +110,58 @@ def send_outreach_emails():
         date_val = str(row[date_col_idx]).strip()
         status_val = str(row[status_col_idx]).strip()
         
-        # Safe extraction for logging
-        try:
-            client_name_log = row[name_col_idx]
-        except:
-            client_name_log = "Unknown"
-
-        print(f"🔍 Checking Row {i}: {client_name_log} | Date: {date_val} | Status: '{status_val}'")
-        
-        # Strict Matching Logic
+        # Check date format match (assuming YYYY-MM-DD or simple string match)
         if date_val == today_str and status_val == "":
-            # Extract Data
-            client_name = row[name_col_idx]
-            client_email = row[email_col_idx]
-            skill = row[skill_col_idx]
-            first_price = row[first_price_col_idx]
-            offer_price = row[offer_price_col_idx]
-            free_gift = row[free_gift_col_idx]
-            portfolio = row[portfolio_col_idx]
-            
-            # Dynamic Sender Selection
-            try:
-                sender_email = row[gmail_col_idx]
-            except IndexError:
-                print(f"Row {i}: Missing Gmail Account")
-                continue
+            pending_tasks.append(i)
+        else:
+             print(f" ❌ SKIP Row {i}: Date '{date_val}' != '{today_str}' or Status '{status_val}' not empty.")
 
-            if not sender_email:
-                print(f"Row {i}: Empty Gmail Account cell")
-                continue
+    print(f"✅ Found {len(pending_tasks)} pending emails to send.")
 
-            print(f"Processing row {i}: Sending from {sender_email} to {client_email}")
-            
-            current_service = get_service_for_email(sender_email)
-            if not current_service:
-                print(f"Skipping row {i}: Could not authenticate for {sender_email}")
-                continue
+    # Pass 2: Process Pending Tasks
+    for idx_in_list, row_idx in enumerate(pending_tasks):
+        # row_idx is 1-based index (Header is 1). So rows[...] index is row_idx - 1
+        # because rows[0] is Header (row 1).
+        # Wait: enumerate(rows[1:], start=2).
+        # i=2 corresponds to rows[1] (which is the first data row).
+        # So array_index = row_idx - 1.
+        
+        array_index = row_idx - 1
+        row = rows[array_index]
+        
+        client_name = row[name_col_idx]
+        client_email = row[email_col_idx]
+        skill = row[skill_col_idx]
+        first_price = row[first_price_col_idx]
+        offer_price = row[offer_price_col_idx]
+        free_gift = row[free_gift_col_idx]
+        portfolio = row[portfolio_col_idx]
+        
+        # Dynamic Sender Selection
+        try:
+            sender_email = row[gmail_col_idx]
+        except IndexError:
+            print(f"Row {row_idx}: Missing Gmail Account")
+            continue
 
-            # Generate Signature
-            sender_signature = get_sender_signature(sender_email)
+        if not sender_email:
+            print(f"Row {row_idx}: Empty Gmail Account cell")
+            continue
 
-            # Construct Email Content
-            subject = f"Quick idea for {client_name}"
-            
-            body = f"""Hi {client_name},
+        print(f"Processing row {row_idx}: Sending from {sender_email} to {client_email}")
+        
+        current_service = get_service_for_email(sender_email)
+        if not current_service:
+            print(f"Skipping row {row_idx}: Could not authenticate for {sender_email}")
+            continue
+
+        # Generate Signature
+        sender_signature = get_sender_signature(sender_email)
+
+        # Construct Email Content
+        subject = f"Quick idea for {client_name}"
+        
+        body = f"""Hi {client_name},
 
 I’ve been following {client_name} for a while and I genuinely love the work you are doing in the {skill} space. Your recent posts really caught my eye! 🔥
 
@@ -169,15 +179,16 @@ No pressure at all—just thought it would be a great fit. Are you open to a qui
 
 Best regards, {sender_signature}"""
 
-            if send_email(current_service, client_email, subject, body):
-                worksheet.update_cell(i, status_col_idx + 1, "Sent") 
-                
-                # Wait for random intervals
-                wait_time = random.randint(180, 360)
+        if send_email(current_service, client_email, subject, body):
+            worksheet.update_cell(row_idx, status_col_idx + 1, "Sent") 
+            
+            # --- Smart Sleep Logic ---
+            if idx_in_list < len(pending_tasks) - 1:
+                wait_time = random.randint(10, 30)
                 print(f"Waiting for {wait_time} seconds before next email...")
                 time.sleep(wait_time)
-        else:
-            print(" ❌ SKIP: Date mismatch or Status not empty.") 
+            else:
+                 print("🚀 Last email sent. Skipping safety delay.") 
 
 if __name__ == "__main__":
     send_outreach_emails()
