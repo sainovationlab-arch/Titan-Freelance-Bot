@@ -3,6 +3,7 @@ import base64
 import time
 import random
 import re
+import pytz
 from email.mime.text import MIMEText
 from modules.services import get_gspread_client, get_gmail_service, get_service_for_email
 import os
@@ -40,8 +41,11 @@ def get_sender_signature(email_address):
 
 def send_outreach_emails():
     print("Running Outreach...")
-    # Get today's date in YYYY-MM-DD format
-    today = datetime.date.today().strftime("%Y-%m-%d")
+    
+    # Set Timezone to India (IST)
+    ist = pytz.timezone('Asia/Kolkata')
+    today_str = datetime.datetime.now(ist).strftime("%d/%m/%Y")
+    print(f"🤖 SYSTEM DATE (IST): {today_str}")
 
     # Authenticate with Google Sheets
     gc = get_gspread_client()
@@ -58,6 +62,8 @@ def send_outreach_emails():
     if not rows:
         print("No data found in the worksheet.")
         return
+
+    print(f"📊 Total Rows in Sheet: {len(rows)}")
 
     headers = rows[0]
     try:
@@ -84,11 +90,19 @@ def send_outreach_emails():
             # Row might be short, pad it
             row.extend([''] * (status_col_idx - len(row) + 1))
             
-        date_val = row[date_col_idx]
-        status_val = row[status_col_idx]
+        date_val = str(row[date_col_idx]).strip()
+        status_val = str(row[status_col_idx]).strip()
         
-        # Check date format match (assuming YYYY-MM-DD or simple string match)
-        if date_val == today and not status_val:
+        # Safe extraction for logging
+        try:
+            client_name_log = row[name_col_idx]
+        except:
+            client_name_log = "Unknown"
+
+        print(f"🔍 Checking Row {i}: {client_name_log} | Date: {date_val} | Status: '{status_val}'")
+        
+        # Strict Matching Logic
+        if date_val == today_str and status_val == "":
             # Extract Data
             client_name = row[name_col_idx]
             client_email = row[email_col_idx]
@@ -142,7 +156,9 @@ Best Regards, {sender_signature}"""
                 # Wait for random intervals
                 wait_time = random.randint(180, 360)
                 print(f"Waiting for {wait_time} seconds before next email...")
-                time.sleep(wait_time) 
+                time.sleep(wait_time)
+        else:
+            print(" ❌ SKIP: Date mismatch or Status not empty.") 
 
 if __name__ == "__main__":
     send_outreach_emails()
