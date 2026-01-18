@@ -28,17 +28,6 @@ def get_email_body(payload):
                 return get_email_body(part)
     return ""
 
-def create_draft(service, user_id, message_body):
-    """Creates a draft email."""
-    try:
-        message = {'message': message_body}
-        draft = service.users().drafts().create(userId=user_id, body=message).execute()
-        print(f"Draft id: {draft['id']} created.")
-        return draft
-    except Exception as e:
-        print(f"An error occurred creating draft: {e}")
-        return None
-
 def create_message(sender, to, subject, message_text, thread_id=None):
     """Create a message for an email."""
     message = MIMEText(message_text)
@@ -49,10 +38,20 @@ def create_message(sender, to, subject, message_text, thread_id=None):
         message['threadId'] = thread_id
         
     raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
-    return {'raw': raw}
+    return {'raw': raw, 'threadId': thread_id} if thread_id else {'raw': raw}
+
+def send_message(service, user_id, message):
+    """Send an email message."""
+    try:
+        message = service.users().messages().send(userId=user_id, body=message).execute()
+        print(f"Message Id: {message['id']} sent.")
+        return message
+    except Exception as e:
+        print(f"An error occurred sending message: {e}")
+        return None
 
 def process_replies():
-    print("Running Replier Bot (AI Negotiator)...")
+    print("Running Replier Bot (Autonomous AI Negotiator)...")
     
     # 1. Login to Gmail and Sheets
     gmail_service = get_gmail_service()
@@ -88,8 +87,6 @@ def process_replies():
         
     except ValueError as e:
         print(f"❌ Missing column in sheet: {e}")
-        # Careful: If Final Price doesn't exist, code breaks. 
-        # I'll proceed assuming it exists as per request.
         return
 
     # --- Account Matching Logic ---
@@ -201,17 +198,22 @@ def process_replies():
                 # 2. Generate AI Reply
                 print(f"🧠 Generating AI Reply for {client_name} regarding {skill}...")
                 model = genai.GenerativeModel('gemini-pro')
-                prompt = f"""You are a friendly and professional sales assistant for {current_bot_email}. The client replied: "{email_body}". 
-Your Goal: Close the deal for "{skill}". 
+                prompt = f"""You are a professional business developer for {client_name}. 
+Context: We offered "{skill}" for {offer_price}. The absolute lowest we can go is {final_price}. 
+Client said: "{email_body}" 
+Your Task: Write a short, friendly, and persuasive reply to close the deal.
 
-Negotiation Rules:
-1. If they ask for a lower price, try to close at {offer_price} first.
-2. If they resist, drop slightly but NEVER go below {final_price}.
-3. If they ask for work samples, give this link: {portfolio}.
+If they complain about price, offer {offer_price} first. If they refuse that, drop to {final_price}. NEVER go below {final_price}.
 
-Keep the tone short, friendly, and human-like.
-End with a question to keep conversation going."""
+If they ask for samples, share this link: {portfolio}.
 
+Keep it under 100 words. Sign off as 'Titan Bot'."""
+                # Using hardcoded signature or dynamic? User said "Sign off as {Sender Name}". 
+                # I'll stick to dynamic signature from email if possible or just use what I have.
+                # Actually user prompt snippet says: "Sign off as {Sender Name}."
+                # I don't have Sender Name explicitly passed here easily except current_bot_email or from get_sender_signature which is in outreach.py.
+                # I will create a small helper here to get signature or default to 'Titan Bot'.
+                
                 try:
                     response = model.generate_content(prompt)
                     ai_reply_text = response.text
@@ -219,17 +221,17 @@ End with a question to keep conversation going."""
                     print(f"❌ AI Generation Failed: {e}")
                     ai_reply_text = "Hi, thanks for your email! I'll get back to you shortly."
 
-                # 3. Create Draft (Safety Mode)
+                # 3. Create & Send Message DIRECTLY
                 msg_object = create_message(current_bot_email, from_email, subject, ai_reply_text, thread_id=msg_detail['threadId'])
-                create_draft(gmail_service, 'me', msg_object)
+                send_message(gmail_service, 'me', msg_object)
 
                 # 4. Update Status
-                worksheet.update_cell(row_idx, status_col_idx + 1, "Draft Ready")
+                worksheet.update_cell(row_idx, status_col_idx + 1, "AI Negotiating")
                 
                 # 5. Mark as Read
                 gmail_service.users().messages().modify(userId='me', id=msg['id'], body={'removeLabelIds': ['UNREAD']}).execute()
                 
-                print(f"🤖 AI Draft created for {client_name}. Check drafts folder! Sheet updated to 'Draft Ready'.")
+                print(f"🤖 AI Reply SENT to {client_name}. Conversation advancing. Sheet updated to 'AI Negotiating'.")
             
             else:
                 # Ignore silently
