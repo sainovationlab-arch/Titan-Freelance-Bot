@@ -2,6 +2,7 @@ import datetime
 import base64
 import time
 import random
+import re
 from email.mime.text import MIMEText
 from modules.services import get_gspread_client, get_gmail_service, get_service_for_email
 import os
@@ -19,6 +20,23 @@ def send_email(service, to, subject, body):
     except Exception as e:
         print(f"An error occurred: {e}")
         return False
+
+def get_sender_signature(email_address):
+    """
+    Generates a signature from the email address.
+    Logic: Take the part before '@', replace dots/numbers with spaces, and Capitalize it.
+    """
+    try:
+        local_part = email_address.split('@')[0]
+        # Replace dots and digits with spaces
+        clean_name = re.sub(r'[\.\d]', ' ', local_part)
+        # Strip extra whitespace and title case
+        signature = clean_name.strip().title()
+        # Collapse multiple spaces
+        signature = re.sub(r'\s+', ' ', signature)
+        return signature
+    except Exception:
+        return "Titan Bot"
 
 def send_outreach_emails():
     print("Running Outreach...")
@@ -43,28 +61,23 @@ def send_outreach_emails():
 
     headers = rows[0]
     try:
+        # Required Columns
         date_col_idx = headers.index('Date')
         status_col_idx = headers.index('Status')
         email_col_idx = headers.index('Email')
         gmail_col_idx = headers.index('Gmail Account')
+        
+        # Dynamic Data Columns
         name_col_idx = headers.index('Client Name')
         skill_col_idx = headers.index('Selected Skill')
+        first_price_col_idx = headers.index('First Price')
+        offer_price_col_idx = headers.index('Offer Price')
+        free_gift_col_idx = headers.index('Free Gift')
         portfolio_col_idx = headers.index('Portfolio Link')
-        
-        # Optional columns for dynamic content
-        try:
-            subject_col_idx = headers.index('Email Subject')
-            body_col_idx = headers.index('Email Body')
-        except ValueError:
-            subject_col_idx = -1
-            body_col_idx = -1
-            
+
     except ValueError as e:
         print(f"Missing column in sheet: {e}")
         return
-
-    # Removed global gmail_service initialization
-    # gmail_service = get_gmail_service()
 
     for i, row in enumerate(rows[1:], start=2): # 1-based index, skip header
         if len(row) <= status_col_idx:
@@ -76,9 +89,13 @@ def send_outreach_emails():
         
         # Check date format match (assuming YYYY-MM-DD or simple string match)
         if date_val == today and not status_val:
+            # Extract Data
             client_name = row[name_col_idx]
             client_email = row[email_col_idx]
             skill = row[skill_col_idx]
+            first_price = row[first_price_col_idx]
+            offer_price = row[offer_price_col_idx]
+            free_gift = row[free_gift_col_idx]
             portfolio = row[portfolio_col_idx]
             
             # Dynamic Sender Selection
@@ -99,38 +116,26 @@ def send_outreach_emails():
                 print(f"Skipping row {i}: Could not authenticate for {sender_email}")
                 continue
 
-            # Dynamic Content Logic
-            subject_template = ""
-            body_template = ""
-            
-            if subject_col_idx != -1 and len(row) > subject_col_idx:
-                subject_template = row[subject_col_idx]
-            
-            if body_col_idx != -1 and len(row) > body_col_idx:
-                body_template = row[body_col_idx]
-                
-            # Default Templates
-            if not subject_template:
-                subject_template = f"Proposal for {skill}"
-            
-            if not body_template:
-                body_template = f"Hi {{Name}},\n\nI noticed you might need help with {{Skill}}. Check out my portfolio: {{Portfolio}}.\n\nBest,\nTitan Bot"
+            # Generate Signature
+            sender_signature = get_sender_signature(sender_email)
 
-            # Placeholder Replacement
-            # Placeholders: {{Name}}, {{Skill}}, {{Portfolio}}
-            replacements = {
-                "{{Name}}": client_name,
-                "{{Skill}}": skill,
-                "{{Portfolio}}": portfolio
-            }
+            # Construct Email Content
+            subject = f"Quick collab for {skill}?"
             
-            subject = subject_template
-            body = body_template
-            
-            for key, val in replacements.items():
-                subject = subject.replace(key, val)
-                body = body.replace(key, val)
-            
+            body = f"""Hi {client_name},
+
+I was looking at your work and I love what you are doing.
+
+Usually, I charge {first_price} for {skill}, but I want to build more case studies in your niche. So, I can do this for you for just {offer_price}.
+
+As a bonus, I will include {free_gift} for free.
+
+Here is my latest work: {portfolio}
+
+Are you open to a quick 5-min chat?
+
+Best Regards, {sender_signature}"""
+
             if send_email(current_service, client_email, subject, body):
                 worksheet.update_cell(i, status_col_idx + 1, "Sent") 
                 
