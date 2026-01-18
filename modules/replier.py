@@ -74,9 +74,20 @@ def process_replies():
             
             # Search for this email in the Google Sheet
             match_found = False
+            consecutive_empty = 0
+            
             for i, row in enumerate(rows[1:], start=2): # 1-based index, skip header
                 sheet_email_raw = row[email_col_idx]
                 sheet_email = str(sheet_email_raw).strip().lower()
+                
+                if not sheet_email:
+                    consecutive_empty += 1
+                    if consecutive_empty > 5:
+                        # Optimization: Stop scanning if we hit 5 blank rows
+                        break
+                    continue
+                else:
+                    consecutive_empty = 0
                 
                 print(f"🔍 Checking against Sheet Email: {sheet_email}")
                 
