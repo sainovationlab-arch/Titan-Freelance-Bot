@@ -78,6 +78,8 @@ def process_replies():
             if not sender_header:
                 continue
             
+            print(f"🧐 Scanning: {sender_header}")
+
             # Extract Clean Email
             if '<' in sender_header and '>' in sender_header:
                 from_email = sender_header.split('<')[1].split('>')[0]
@@ -85,9 +87,11 @@ def process_replies():
                 from_email = sender_header
             
             from_email = from_email.strip().lower()
+            print(f" 🧹 Cleaned: {from_email}")
             
             # Smart Scan (VIP Check)
             if from_email in valid_clients:
+                print("✅ MATCH!")
                 # MATCH FOUND
                 row_idx = valid_clients[from_email]
                 
@@ -95,10 +99,6 @@ def process_replies():
                 # Note: 'rows' is 0-indexed list of lists.
                 # 'i' in the loop above was 'start=2'.
                 # So if valid_clients has '2', it corresponds to rows[1] (since rows[0] is header).
-                # Wait: 'rows' list index 0 is Header. 
-                # 'enumerate(rows[1:], start=2)' means:
-                # Valid Client 'foo' found at start=2. 
-                # In 'rows' list, that is rows[1] (Header is rows[0]).
                 # So rows index = row_idx - 1.
                 
                 rows_list_idx = row_idx - 1
