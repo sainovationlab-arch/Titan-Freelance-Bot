@@ -85,10 +85,25 @@ def send_outreach_emails():
         print(f"Missing column in sheet: {e}")
         return
 
+    consecutive_empty = 0
+
     for i, row in enumerate(rows[1:], start=2): # 1-based index, skip header
         if len(row) <= status_col_idx:
             # Row might be short, pad it
             row.extend([''] * (status_col_idx - len(row) + 1))
+            
+        # Empty Row Breaker Logic
+        row_name = row[name_col_idx].strip() if len(row) > name_col_idx else ""
+        row_email = row[email_col_idx].strip() if len(row) > email_col_idx else ""
+
+        if not row_name or not row_email:
+            consecutive_empty += 1
+            if consecutive_empty > 5:
+                print("⛔ Found 5 consecutive empty rows. Stopping scan.")
+                break
+            continue # Skip this empty row but don't break yet
+        else:
+            consecutive_empty = 0
             
         date_val = str(row[date_col_idx]).strip()
         status_val = str(row[status_col_idx]).strip()
