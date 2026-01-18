@@ -60,23 +60,32 @@ def process_replies():
             
             if not sender_header:
                 continue
-                
-            name, from_email = parseaddr(sender_header)
-            from_email = from_email.strip()
+            
+            print(f"📩 New Reply Found from: {sender_header}")
+
+            # Extract Clean Email
+            if '<' in sender_header and '>' in sender_header:
+                from_email = sender_header.split('<')[1].split('>')[0]
+            else:
+                from_email = sender_header
+            
+            from_email = from_email.strip().lower()
+            print(f"🧹 Cleaned Email: {from_email}")
             
             # Search for this email in the Google Sheet
             match_found = False
             for i, row in enumerate(rows[1:], start=2): # 1-based index, skip header
-                sheet_email = row[email_col_idx].strip()
+                sheet_email_raw = row[email_col_idx]
+                sheet_email = str(sheet_email_raw).strip().lower()
                 
-                if sheet_email.lower() == from_email.lower():
+                print(f"🔍 Checking against Sheet Email: {sheet_email}")
+                
+                if sheet_email == from_email:
                     # MATCH FOUND
                     match_found = True
                     client_name = row[name_col_idx]
                     
                     # Update 'Status' to 'Replied'
-                    # Note: We overwrite whatever was there, or checks if it's already replied?
-                    # User request: "Update their Status to 'Replied'."
                     worksheet.update_cell(i, status_col_idx + 1, "Replied")
                     
                     # Mark email as READ
