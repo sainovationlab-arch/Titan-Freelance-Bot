@@ -2,7 +2,7 @@ name: Daily Email Bot
 
 on:
   schedule:
-    - cron: '*/15 * * * *' # દર 15 મિનિટે રન થશે (Every 15 minutes)
+    - cron: '*/5 * * * *' # દર 5 મિનિટે રન થશે (Every 5 minutes)
   workflow_dispatch:      # Allows manual run
 
 jobs:
