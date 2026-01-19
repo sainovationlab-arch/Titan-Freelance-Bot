@@ -223,7 +223,7 @@ Your Task: Write a short, friendly, and persuasive reply to close the deal.
 CONSTRAINTS:
 1. Do NOT start emails with 'Thanks for your prompt reply'. Instead, use natural openings like 'Thanks for getting back to us', 'Great to hear from you', or 'Thanks for the update'.
 2. If they complain about price, offer {offer_price} first. If they refuse that, drop to {final_price}. NEVER go below {final_price}.
-3. If they ask for samples, share this link: {portfolio}.
+3. If the client asks for a portfolio or work samples, YOU MUST include the link provided here: {portfolio}. If the sheet has no link, say you will attach it in the next email.
 4. ALWAYS sign off exactly as: 'Best regards, SA Innovation Lab'. Do not use 'Titan Bot' or any other name.
 
 Keep it under 100 words."""
