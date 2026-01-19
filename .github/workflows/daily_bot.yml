@@ -35,7 +35,10 @@ jobs:
       run: |
         python -c "import os, json; tokens = json.loads(os.environ['APP_TOKENS_JSON']); os.makedirs('tokens', exist_ok=True); [open(f'tokens/{k}', 'w').write(v) for k, v in tokens.items()]"
 
-    - name: Run script
+    - name: Run Bots
       env: 
-        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}  # 👈 આ ચાવી મેં ઉમેરી છે!
-      run: python main.py
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        GMAIL_CREDENTIALS_JSON: ${{ secrets.GMAIL_CREDENTIALS_JSON }}
+      run: |
+        python main.py
+        python -m modules.delivery
