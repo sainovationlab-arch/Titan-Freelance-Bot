@@ -1,4 +1,5 @@
 import os
+import random
 import time
 import base64
 from email.mime.text import MIMEText
@@ -8,7 +9,17 @@ from modules.services import get_gmail_service, get_gspread_client
 
 # Configure Gemini
 # Ensure GEMINI_API_KEY is set in environment variables
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+gemini_keys_env = os.getenv("GEMINI_API_KEY")
+if gemini_keys_env:
+    keys = [k.strip() for k in gemini_keys_env.split(',') if k.strip()]
+    if keys:
+        selected_key = random.choice(keys)
+        genai.configure(api_key=selected_key)
+        print(f"🔑 Gemini configured with 1 of {len(keys)} keys.")
+    else:
+        print("❌ Error: GEMINI_API_KEY provided but contains no valid keys.")
+else:
+    print("❌ Error: GEMINI_API_KEY not found in environment.")
 
 def get_email_body(payload):
     """Recursively attempts to find the text/plain part of the email body."""
