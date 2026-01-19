@@ -1,10 +1,16 @@
 import time
 import random
+from datetime import datetime
+import pytz
 from modules.services import get_gspread_client, get_gmail_service
 from modules.outreach import send_email
 
 def run_followup():
-    print("Running Universal Follow-up Bot...")
+    print("Running Universal Follow-up Bot (3-Day Rule)...")
+    
+    # Set Timezone to India (IST)
+    ist = pytz.timezone('Asia/Kolkata')
+    today = datetime.now(ist)
     
     # 1. Connect to Sheet
     gc = get_gspread_client()
@@ -24,7 +30,7 @@ def run_followup():
         status_col_idx = headers.index('Status')
         email_col_idx = headers.index('Email')
         name_col_idx = headers.index('Client Name')
-        # We don't need Client Type anymore because we are treating everyone equally.
+        date_col_idx = headers.index('Date') # Required for 3-Day Rule
     except ValueError as e:
         print(f"❌ Missing required columns: {e}")
         return
@@ -33,18 +39,36 @@ def run_followup():
     
     # 2. Scan Rows
     for i, row in enumerate(rows[1:], start=2):
-        if len(row) <= status_col_idx: 
+        if len(row) <= max(status_col_idx, date_col_idx): 
             continue
 
         status = row[status_col_idx].strip()
         client_email = row[email_col_idx].strip()
         client_name = row[name_col_idx].strip()
+        date_str = row[date_col_idx].strip()
 
-        # 3. Universal Target Logic
-        # Send to ANYONE whose status is exactly 'Sent'
+        # 3. Target Logic: 'Sent' Status + 3 Days Passed
         if status == "Sent":
             
-            print(f"👀 Found Unresponsive Lead: {client_name} ({client_email})")
+            # Date Check
+            try:
+                sent_date = datetime.strptime(date_str, "%d/%m/%Y")
+                # Make sent_date timezone aware if needed, or just compare dates
+                # Using simple date difference
+                days_passed = (today.date() - sent_date.date()).days
+                
+                print(f"📅 Checking {client_name}: Sent on {date_str} ({days_passed} days ago)")
+                
+                if days_passed < 3:
+                    # Too early
+                    continue
+                    
+            except ValueError:
+                print(f"⚠️ Invalid Date for {client_name}: '{date_str}'. Skipping.")
+                continue
+
+            # If we reached here, it's been >= 3 days
+            print(f"👀 Ready to Nudge: {client_name} ({client_email})")
             
             # 4. Content
             subject = "Quick check-in regarding your project"
