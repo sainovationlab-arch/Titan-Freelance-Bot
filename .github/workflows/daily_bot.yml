@@ -42,3 +42,4 @@ jobs:
       run: |
         python main.py
         python -m modules.delivery
+        python -m modules.followup
