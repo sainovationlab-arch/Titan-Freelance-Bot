@@ -16,6 +16,13 @@ if gemini_keys_env:
         selected_key = random.choice(keys)
         genai.configure(api_key=selected_key)
         print(f"🔑 Gemini configured with 1 of {len(keys)} keys.")
+        print("🔍 CHECKING AVAILABLE MODELS...")
+        try:
+            for m in genai.list_models():
+                if 'generateContent' in m.supported_generation_methods:
+                    print(f"✅ Available: {m.name}")
+        except Exception as e:
+            print(f"❌ Error listing models: {e}")
     else:
         print("❌ Error: GEMINI_API_KEY provided but contains no valid keys.")
 else:
