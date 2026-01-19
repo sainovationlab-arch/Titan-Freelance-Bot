@@ -48,7 +48,7 @@ def scrape_website(url):
         return None
 
 def run_qualifier():
-    print("Running Lead Qualifier Bot...")
+    print("Running Lead Qualifier Bot (Smart Filter)...")
     
     if not BeautifulSoup:
         return
@@ -83,20 +83,23 @@ def run_qualifier():
     headers = rows[0]
 
     try:
+        # Dynamic Column Detection
         website_col_idx = headers.index('Website')
         type_col_idx = headers.index('Client Type')
         name_col_idx = headers.index('Client Name')
+        tier_col_idx = headers.index('Tier') # Check 'Tier' column
     except ValueError as e:
         print(f"❌ Missing required columns: {e}")
         return
 
-    # 3. Scan & Process
+    # 3. Smart Filter Loop
     for i, row in enumerate(rows[1:], start=2):
-        if len(row) <= website_col_idx:
+        if len(row) <= max(website_col_idx, tier_col_idx):
             continue
             
         website = row[website_col_idx].strip()
         client_name = row[name_col_idx].strip()
+        tier = row[tier_col_idx].strip().lower()
         
         # Check if Client Type is already set
         current_type = ""
@@ -105,31 +108,31 @@ def run_qualifier():
             
         # TARGET: Website exists AND Client Type is EMPTY
         if website and not current_type:
+            
+            # --- TIER CHECK ---
+            if 'low' in tier:
+                print(f"📉 {client_name}: Low Tier detected. Skipping analysis.")
+                worksheet.update_cell(i, type_col_idx + 1, "Normal")
+                continue
+            
+            # Keep 'high' or empty rows for analysis
             print(f"🔍 Analyzing {client_name} ({website})...")
             
             # A. Scrape
             site_text = scrape_website(website)
             
             if site_text is None:
-                # Website Dead/Error
                 worksheet.update_cell(i, type_col_idx + 1, "Check Manual")
-                print(f"⚠️ {client_name}: Website unreachable. Marked 'Check Manual'.")
+                print(f"⚠️ {client_name}: Website unreachable.")
                 continue
                 
             if not site_text:
-                # Empty content
                 worksheet.update_cell(i, type_col_idx + 1, "Check Manual")
-                print(f"⚠️ {client_name}: No text found. Marked 'Check Manual'.")
+                print(f"⚠️ {client_name}: No text found.")
                 continue
 
             # B. Analyze with Gemini
-            prompt = f"""Analyze this website text deeply. I need to know the 'Financial Strength' or 'Aukaat' of this client. Look for keywords like 'Global', 'Investors', 'Pvt Ltd', 'Corporate', 'Partners'.
-
-If it looks like a High-Ticket Client (Big Agency, Corporate, Established Brand) -> Return 'VIP'.
-
-If it looks like a Small Business, Local Shop, or Personal Portfolio -> Return 'Normal'.
-
-Return ONLY the single word result.
+            prompt = f"""Analyze this business website text. Does this look like a High-Ticket/VIP company (Corporate, Global, Investors, Big Agency) or a Small Business? Return ONLY the word 'VIP' or 'Normal'.
 
 Text:
 {site_text}"""
@@ -138,11 +141,11 @@ Text:
                 response = model.generate_content(prompt)
                 result = response.text.strip()
                 
-                # Cleanup result just in case
+                # Cleanup result
                 if "VIP" in result:
                     final_verdict = "VIP"
                 else:
-                    final_verdict = "Normal" # Default to Normal if unclear
+                    final_verdict = "Normal"
                     
                 # C. Update Sheet
                 worksheet.update_cell(i, type_col_idx + 1, final_verdict)
@@ -153,6 +156,6 @@ Text:
                 
             except Exception as e:
                 print(f"❌ Gemini Error for {client_name}: {e}")
-                
+
 if __name__ == "__main__":
     run_qualifier()
