@@ -4,7 +4,7 @@ from modules.services import get_gspread_client, get_gmail_service
 from modules.outreach import send_email
 
 def run_followup():
-    print("Running Follow-up Bot...")
+    print("Running Universal Follow-up Bot...")
     
     # 1. Connect to Sheet
     gc = get_gspread_client()
@@ -24,13 +24,7 @@ def run_followup():
         status_col_idx = headers.index('Status')
         email_col_idx = headers.index('Email')
         name_col_idx = headers.index('Client Name')
-        
-        # Optional: Check for Client Type, default to Normal logic if missing
-        try:
-            type_col_idx = headers.index('Client Type')
-        except ValueError:
-            type_col_idx = -1 # Column doesn't exist
-
+        # We don't need Client Type anymore because we are treating everyone equally.
     except ValueError as e:
         print(f"❌ Missing required columns: {e}")
         return
@@ -45,17 +39,12 @@ def run_followup():
         status = row[status_col_idx].strip()
         client_email = row[email_col_idx].strip()
         client_name = row[name_col_idx].strip()
-        
-        # Determine Client Type (Default to 'Normal')
-        client_type = "Normal"
-        if type_col_idx != -1 and len(row) > type_col_idx:
-            client_type = row[type_col_idx].strip()
 
-        # 3. VIP Filter Logic
-        # Send ONLY if Status is 'Contacted' AND Type is NOT VIP/Super VIP
-        if status == "Contacted" and "VIP" not in client_type:
+        # 3. Universal Target Logic
+        # Send to ANYONE whose status is exactly 'Contacted'
+        if status == "Contacted":
             
-            print(f"👀 Found Unresponsive Lead: {client_name} ({client_email}) - Type: {client_type}")
+            print(f"👀 Found Unresponsive Lead: {client_name} ({client_email})")
             
             # 4. Content
             subject = "Quick check-in regarding your project"
