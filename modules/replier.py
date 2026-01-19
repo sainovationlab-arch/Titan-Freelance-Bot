@@ -16,13 +16,7 @@ if gemini_keys_env:
         selected_key = random.choice(keys)
         genai.configure(api_key=selected_key)
         print(f"🔑 Gemini configured with 1 of {len(keys)} keys.")
-        print("🔍 CHECKING AVAILABLE MODELS...")
-        try:
-            for m in genai.list_models():
-                if 'generateContent' in m.supported_generation_methods:
-                    print(f"✅ Available: {m.name}")
-        except Exception as e:
-            print(f"❌ Error listing models: {e}")
+        print(f"📦 Installed GenAI Version: {genai.__version__}")
     else:
         print("❌ Error: GEMINI_API_KEY provided but contains no valid keys.")
 else:
@@ -220,7 +214,7 @@ def process_replies():
                 
                 # 2. Generate AI Reply
                 print(f"🧠 Generating AI Reply for {client_name} regarding {skill}...")
-                model = genai.GenerativeModel('gemini-1.5-flash')
+                model = genai.GenerativeModel('gemini-2.0-flash')
                 prompt = f"""You are a professional business developer for {client_name}. 
 Context: We offered "{skill}" for {offer_price}. The absolute lowest we can go is {final_price}. 
 Client said: "{email_body}" 
