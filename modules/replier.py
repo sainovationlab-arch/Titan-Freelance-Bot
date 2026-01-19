@@ -214,7 +214,7 @@ def process_replies():
                 
                 # 2. Generate AI Reply
                 print(f"🧠 Generating AI Reply for {client_name} regarding {skill}...")
-                model = genai.GenerativeModel('gemini-2.0-flash')
+                model = genai.GenerativeModel('gemini-2.5-flash')
                 prompt = f"""You are a professional business developer for {client_name}. 
 Context: We offered "{skill}" for {offer_price}. The absolute lowest we can go is {final_price}. 
 Client said: "{email_body}" 
