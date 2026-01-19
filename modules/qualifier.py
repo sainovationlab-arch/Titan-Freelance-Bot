@@ -87,7 +87,7 @@ def run_qualifier():
         website_col_idx = headers.index('Website')
         type_col_idx = headers.index('Client Type')
         name_col_idx = headers.index('Client Name')
-        tier_col_idx = headers.index('Tier') # Check 'Tier' column
+        tier_col_idx = headers.index('Tier (Aukaat)') # Check 'Tier' column
     except ValueError as e:
         print(f"❌ Missing required columns: {e}")
         return
