@@ -2,7 +2,7 @@ name: Daily Email Bot
 
 on:
   schedule:
-    - cron: '0 9 * * *' # Runs at 09:00 UTC daily
+    - cron: '*/15 * * * *' # દર 15 મિનિટે રન થશે (Every 15 minutes)
   workflow_dispatch:      # Allows manual run
 
 jobs:
@@ -35,4 +35,6 @@ jobs:
         python -c "import os, json; tokens = json.loads(os.environ['APP_TOKENS_JSON']); os.makedirs('tokens', exist_ok=True); [open(f'tokens/{k}', 'w').write(v) for k, v in tokens.items()]"
 
     - name: Run script
+      env: 
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}  # 👈 આ ચાવી મેં ઉમેરી છે!
       run: python main.py
