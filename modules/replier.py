@@ -220,11 +220,13 @@ Context: We offered "{skill}" for {offer_price}. The absolute lowest we can go i
 Client said: "{email_body}" 
 Your Task: Write a short, friendly, and persuasive reply to close the deal.
 
-If they complain about price, offer {offer_price} first. If they refuse that, drop to {final_price}. NEVER go below {final_price}.
+CONSTRAINTS:
+1. Do NOT start emails with 'Thanks for your prompt reply'. Instead, use natural openings like 'Thanks for getting back to us', 'Great to hear from you', or 'Thanks for the update'.
+2. If they complain about price, offer {offer_price} first. If they refuse that, drop to {final_price}. NEVER go below {final_price}.
+3. If they ask for samples, share this link: {portfolio}.
+4. ALWAYS sign off exactly as: 'Best regards, SA Innovation Lab'. Do not use 'Titan Bot' or any other name.
 
-If they ask for samples, share this link: {portfolio}.
-
-Keep it under 100 words. Sign off as 'Titan Bot'."""
+Keep it under 100 words."""
                 # Using hardcoded signature or dynamic? User said "Sign off as {Sender Name}". 
                 # I'll stick to dynamic signature from email if possible or just use what I have.
                 # Actually user prompt snippet says: "Sign off as {Sender Name}."
