@@ -41,8 +41,8 @@ def run_followup():
         client_name = row[name_col_idx].strip()
 
         # 3. Universal Target Logic
-        # Send to ANYONE whose status is exactly 'Contacted'
-        if status == "Contacted":
+        # Send to ANYONE whose status is exactly 'Sent'
+        if status == "Sent":
             
             print(f"👀 Found Unresponsive Lead: {client_name} ({client_email})")
             
