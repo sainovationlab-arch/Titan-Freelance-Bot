@@ -240,7 +240,7 @@ def process_replies():
                     subject = next((h['value'] for h in headers_list if h['name'] == 'Subject'), "Re: Conversation")
 
                     print(f"      🧠 Generating Smart Sales Reply for {client_name}...")
-                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    model = genai.GenerativeModel('gemini-2.0-flash-exp')
                     
                     intent = "Negotiating"
                     new_status = "Negotiating"
