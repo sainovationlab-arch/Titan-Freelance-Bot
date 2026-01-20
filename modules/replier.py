@@ -7,6 +7,9 @@ import re
 import io
 from PIL import Image
 from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
 from email.utils import parseaddr
 import google.generativeai as genai
 from modules.services import get_gspread_client, get_service_for_email
@@ -74,14 +77,27 @@ def find_images(service, user_id, msg_id, payload):
                 found_images.extend(find_images(service, user_id, msg_id, part))
     return found_images
 
-def create_message(sender, to, subject, message_text, thread_id=None):
+def create_message(sender, to, subject, message_text, thread_id=None, attachment_path=None):
     """Create a message for an email."""
-    message = MIMEText(message_text)
+    message = MIMEMultipart()
     message['to'] = to
     message['from'] = sender
     message['subject'] = subject
     if thread_id:
         message['threadId'] = thread_id
+
+    message.attach(MIMEText(message_text))
+
+    if attachment_path and os.path.exists(attachment_path):
+        content_type, encoding = 'application/octet-stream', None
+        main_type, sub_type = content_type.split('/', 1)
+        with open(attachment_path, 'rb') as fp:
+            msg = MIMEBase(main_type, sub_type)
+            msg.set_payload(fp.read())
+        encoders.encode_base64(msg)
+        filename = os.path.basename(attachment_path)
+        msg.add_header('Content-Disposition', 'attachment', filename=filename)
+        message.attach(msg)
         
     raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
     return {'raw': raw, 'threadId': thread_id} if thread_id else {'raw': raw}
@@ -233,7 +249,56 @@ def process_replies():
                             c_email = str(row[email_col_idx]).strip().lower()
                             if c_email:
                                 valid_clients[c_email] = i
-        
+
+        # --- PRIORITY CHECK: PAYMENT REQUEST (Proactive) ---
+        # Logic: If 'Design Ready' AND 'Payment Status' is empty -> Send Email with QR Code
+        for i, row in enumerate(rows[1:], start=2):
+            # Account Check (Strict)
+            if len(row) > gmail_col_idx:
+                 row_account = row[gmail_col_idx].strip().lower()
+                 if row_account != current_account:
+                     continue
+            else:
+                 continue
+
+            if len(row) > status_col_idx and len(row) > payment_status_col_idx:
+                p_status = row[status_col_idx].strip()
+                p_payment = row[payment_status_col_idx].strip()
+                
+                # Check for Link (ensure it's generated)
+                try: 
+                    final_link_col_idx = headers.index('Final Drive Link')
+                    final_link = row[final_link_col_idx].strip()
+                except: 
+                    final_link = "Check Sheet" # Fallback if column missing
+
+                if p_status == 'Design Ready' and (not p_payment):
+                    client_email_p = row[email_col_idx].strip()
+                    print(f"💰 Sending Payment Request to {client_email_p}...")
+                    
+                    # Content
+                    subject_p = "Your Order is Ready! (Payment Required)"
+                    body_p = (
+                        f"Hi {row[name_col_idx]},\n\n"
+                        "Great news! Your design is completely ready and it looks fantastic.\n\n"
+                        "To get the final editable files and drive link, please complete the pending payment of $279.\n\n"
+                        "UPI ID: solankiart218@okaxis\n"
+                        "(Please scan the attached QR Code)\n\n"
+                        "IMPORTANT: Please reply to this email with a Screenshot of your payment so we can release the files immediately.\n\n"
+                        "Best regards,\n"
+                        f"{sender_display_name}"
+                    )
+                    
+                    # Attach payment.png
+                    att_path = 'payment.png'
+                    msg_obj_p = create_message(current_account, client_email_p, subject_p, body_p, attachment_path=att_path)
+                    
+                    if send_message(gmail_service, 'me', msg_obj_p):
+                        worksheet.update_cell(i, payment_status_col_idx + 1, "Payment Pending")
+                        print(f"   ✅ Payment Request sent to {client_email_p}. Status: Payment Pending")
+                        # Add short sleep to not hit limits
+                        time.sleep(3)
+
         if not valid_clients:
             continue
 
@@ -318,22 +383,63 @@ def process_replies():
                     new_status = "Negotiating"
 
                     # Vision Logic (Payment Check)
-                    if images:
-                        prompt = ["Analyze this image. Is this a valid payment screenshot showing a 'Successful' transaction? Extract the Amount. If it looks like a valid receipt for the expected amount, return 'VERIFIED'. If it's unclear or fake, return 'CHECK_MANUAL'.", images[0]]
+                    # Vision Logic (Payment Verification)
+                    # Condition: Payment Status is 'Payment Pending' AND Image exists
+                    p_status_check = row_data[payment_status_col_idx] if len(row_data) > payment_status_col_idx else ""
+                    
+                    if images and p_status_check == "Payment Pending":
+                        print(f"      🖼️ Analyzing Payment Screenshot for {client_name}...")
+                        prompt = ["Is this a valid payment screenshot for a successful transaction? Answer strictly with YES or NO.", images[0]]
+                        
                         try:
+                            # Delivery Columns
+                            try:
+                                delivery_status_col_idx = headers.index('Delivery Status')
+                                delivery_date_col_idx = headers.index('Delivery Date')
+                            except:
+                                delivery_status_col_idx = 22
+                                delivery_date_col_idx = 21
+
                             resp = model.generate_content(prompt)
-                            if "VERIFIED" in resp.text:
-                                intent = "Ordered"
-                                ai_reply_text = "Payment received! Sending files shortly."
-                                new_status = "Ordered"
-                                if payment_status_col_idx != -1:
-                                    worksheet.update_cell(row_idx, payment_status_col_idx + 1, "Paid")
+                            vision_text = resp.text.strip().upper()
+                            print(f"      🤖 Vision AI says: {vision_text}")
+                            
+                            if "YES" in vision_text:
+                                # SUCCESS: Deliver Files
+                                try: 
+                                    final_link_col_idx = headers.index('Final Drive Link')
+                                    final_link = row_data[final_link_col_idx].strip()
+                                except: 
+                                    final_link = "ERROR: Link not found in sheet."
+
+                                ai_reply_text = f"Payment Received! Thank you for your order. Here is your final drive link:\n{final_link}\n\nBest regards,\n{sender_display_name}"
+                                new_status = "Payment Done" # Should we change Status col too? User said Update Payment Status (Col U). 
+                                # User also said "Update Delivery Status (Col W) to 'Delivered'".
+                                
+                                # Updates
+                                worksheet.update_cell(row_idx, payment_status_col_idx + 1, "Payment Done")
+                                worksheet.update_cell(row_idx, delivery_status_col_idx + 1, "Delivered")
+                                
+                                import datetime
+                                current_date = datetime.datetime.now().strftime("%d/%m/%Y")
+                                worksheet.update_cell(row_idx, delivery_date_col_idx + 1, current_date)
+                                
+                                print("      🚀 FILES DELIVERED!")
+                                
                             else:
-                                ai_reply_text = "Received the image, checking manually."
+                                # FAIL
+                                ai_reply_text = "We could not verify the payment from this screenshot. Please upload a clear screenshot of the successful transaction."
                                 new_status = "Payment Pending"
-                        except:
+                                print("      ❌ Vision rejected the screenshot.")
+                                
+                        except Exception as e:
+                            print(f"      Vision Error: {e}")
                             ai_reply_text = "I received the image but couldn't verify it automatically. Checking manually."
                             new_status = "Payment Pending"
+                    elif images:
+                         # Image sent but not in Payment Pending? Maybe new order reference.
+                         ai_reply_text = "I received your image. Is this a reference for the design?"
+                         new_status = current_status # Keep existing
                     else:
                         # 5. Wolf of Wall Street Persona (Aggressive)
                         prompt = f"""You are an elite Sales Closer for {sender_display_name}. You do not just 'answer questions' — you overcome objections and close deals. You are speaking to {client_name} about {skill}.
