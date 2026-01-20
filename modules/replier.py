@@ -96,7 +96,17 @@ def process_replies():
         skill_col_idx = headers.index('Selected Skill')
         offer_price_col_idx = headers.index('Offer Price')
         final_price_col_idx = headers.index('Final Price') # Assuming this exists or using Offer Price as fallback? User said "Final Price" exists.
+        skill_col_idx = headers.index('Selected Skill')
+        offer_price_col_idx = headers.index('Offer Price')
+        final_price_col_idx = headers.index('Final Price') # Assuming this exists or using Offer Price as fallback? User said "Final Price" exists.
         portfolio_col_idx = headers.index('Portfolio Link')
+        
+        # New Column for Order Requirements
+        try:
+            order_req_col_idx = headers.index('Order Requirements')
+        except ValueError:
+            print("⚠️ 'Order Requirements' column not found. Adding it would be good, but proceeding without writing requirements.")
+            order_req_col_idx = -1
         
     except ValueError as e:
         print(f"❌ Missing column in sheet: {e}")
@@ -218,6 +228,7 @@ def process_replies():
                 model = genai.GenerativeModel('gemini-2.5-flash')
                 
                 # Enhanced Prompt for Intent Detection + Reply
+                # Refined Prompt Construction
                 prompt = f"""
 You are a professional business developer for {client_name}. 
 Context: We offered "{skill}" for {offer_price}. The absolute lowest we can go is {final_price}. 
@@ -228,7 +239,12 @@ TASK 1: CLASSIFY INTENT
 - "Negotiating": If discussing price, samples, asking questions, or negotiating.
 - "Stop": If client says "No", "Not interested", "Unsubscribe" or stop contacting.
 
-TASK 2: GENERATE REPLY based on intent.
+TASK 2: EXTRACT DETAILS (If Intent is 'Ordered')
+- Extract specific project requirements (e.g., 'Red logo', 'SEO for website').
+- Keep it under 20 words.
+- If no details found, return "Details pending".
+
+TASK 3: GENERATE REPLY based on intent.
 - If Ordered: Thank them and say we are ready to start.
 - If Negotiating: Answer questions, handle objections. If price complaint, offer {offer_price} first, then {final_price}.
 - If Stop: Polite confirmation that we will stop contacting.
@@ -241,10 +257,11 @@ TASK 2: GENERATE REPLY based on intent.
 OUTPUT FORMAT (JSON ONLY):
 {{
   "intent": "Ordered" | "Negotiating" | "Stop",
+  "order_requirements": "Extracted requirements or 'Details pending' (only if Ordered, else null)",
   "reply_text": "Your email reply here"
 }}
 """
-                try:
+
                     response = model.generate_content(prompt)
                     # Clean up json if markdown code blocks are present
                     clean_text = response.text.strip()
@@ -257,11 +274,13 @@ OUTPUT FORMAT (JSON ONLY):
                     
                     data = json.loads(clean_text)
                     intent = data.get("intent", "Negotiating")
+                    order_requirements = data.get("order_requirements", "")
                     ai_reply_text = data.get("reply_text", "Thanks for your email. We will get back to you soon.")
                     
                 except Exception as e:
                     print(f"❌ AI Analysis Failed: {e}. Falling back to default.")
                     intent = "Negotiating"
+                    order_requirements = ""
                     ai_reply_text = "Thanks for your email! We will proceed with the discussion."
 
                 # Map Intent to Status
@@ -276,8 +295,13 @@ OUTPUT FORMAT (JSON ONLY):
                 msg_object = create_message(current_bot_email, from_email, subject, ai_reply_text, thread_id=msg_detail['threadId'])
                 send_message(gmail_service, 'me', msg_object)
 
-                # 4. Update Status
+                # 4. Update Status and Requirements
                 worksheet.update_cell(row_idx, status_col_idx + 1, new_status)
+                
+                # Write Order Requirements if found and column exists
+                if intent == "Ordered" and order_requirements and order_req_col_idx != -1:
+                     worksheet.update_cell(row_idx, order_req_col_idx + 1, order_requirements)
+                     print(f"📝 Order Requirements Saved: {order_requirements}")
                 
                 # 5. Mark as Read
                 gmail_service.users().messages().modify(userId='me', id=msg['id'], body={'removeLabelIds': ['UNREAD']}).execute()
