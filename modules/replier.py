@@ -224,7 +224,10 @@ def process_replies():
                 # Check Status
                 if len(row) > status_col_idx:
                     current_status = row[status_col_idx].strip()
-                    if current_status not in ['Ordered', 'Opt-out', 'Payment Done', 'Delivered']:
+                    print(f"Checking emails for {row[email_col_idx]} | Status: {current_status}")
+                    
+                    # "Super Power" Logic: Process EVERYONE unless the deal is closed/stopped.
+                    if current_status not in ['Ordered', 'Opt-out', 'Payment Done']:
                         # Add to whitelist
                         if len(row) > email_col_idx:
                             c_email = str(row[email_col_idx]).strip().lower()
