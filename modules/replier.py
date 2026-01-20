@@ -129,21 +129,23 @@ def process_replies():
 
     # Build VIP Whitelist
     valid_clients = {} # {email: row_index} with row_index being actual integer index in 'rows'
-    valid_statuses = ['Sent', 'Follow-up 1', 'Replied', 'AI Negotiating', 'Negotiating']
+    
+    # FIX: Remove restrictive status check. Monitor ALL valid emails in the sheet regardless of status.
+    # This ensures clients in 'Followed Up', 'Sent', or 'Negotiating' are all responded to.
     
     for i, row in enumerate(rows[1:], start=2): # Start=2 because row 1 is header, so index 2 matches sheet row 2
         # Safety check for short rows
-        if len(row) > email_col_idx and len(row) > status_col_idx:
+        if len(row) > email_col_idx:
             raw_email = row[email_col_idx]
-            status_val = row[status_col_idx].strip()
             
             clean_email = str(raw_email).strip().lower()
             
-            # Filter: Only monitor if we have contacted them or are in conversation
-            if clean_email and status_val in valid_statuses:
+            # Simple Filter: If email exists, we monitor it.
+            # We explicitly allow 'Followed Up' or any other status to be processed.
+            if clean_email:
                 valid_clients[clean_email] = i
     
-    print(f"📋 Monitoring {len(valid_clients)} Active Clients (Status: Sent/Replied/etc). Ignoring pending rows.")
+    print(f"📋 Monitoring {len(valid_clients)} Active Clients (Any Status).")
 
     # 2. Check Inbox for UNREAD emails
     if len(valid_clients) == 0:
