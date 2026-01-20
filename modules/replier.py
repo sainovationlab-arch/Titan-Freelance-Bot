@@ -224,7 +224,7 @@ def process_replies():
                 # Check Status
                 if len(row) > status_col_idx:
                     current_status = row[status_col_idx].strip()
-                    if current_status in ['Sent', 'Negotiating']:
+                    if current_status not in ['Ordered', 'Opt-out']:
                         # Add to whitelist
                         if len(row) > email_col_idx:
                             c_email = str(row[email_col_idx]).strip().lower()
