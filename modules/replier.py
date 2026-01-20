@@ -99,34 +99,50 @@ def send_message(service, user_id, message):
 def get_sender_display_name(email_address):
     """
     Derives a display name from the email address.
-    Logic:
-    - Get username part
-    - Remove numbers
-    - Add spaces before 'art', 'lab'
-    - Title Case
     """
     try:
         local_part = email_address.split('@')[0]
-        # Remove digits
         local_part = re.sub(r'\d+', '', local_part)
-        
-        # Add spaces (simple string replacement as mostly safe for these specific keywords)
-        # Using case-insensitive replacement logic if needed, but simple replace works for standard usernames
-        # To be cleaner:
         local_part = local_part.replace('art', ' Art').replace('lab', ' Lab')
-        
-        # Title case
         clean_name = local_part.strip().title()
-        
-        # Collapse extra spaces if any
         clean_name = re.sub(r'\s+', ' ', clean_name)
-        
         return clean_name
     except Exception:
         return "Solanki Art"
 
+def check_last_sender_is_me(service, thread_id, my_email):
+    """
+    Fetches the thread and checks if the very last message is from 'me'.
+    Returns True if I was the last sender.
+    """
+    try:
+        thread = service.users().threads().get(userId='me', id=thread_id).execute()
+        messages = thread.get('messages', [])
+        if not messages:
+            return False
+            
+        last_msg = messages[-1]
+        
+        # Determine sender of last message
+        payload = last_msg.get('payload', {})
+        headers_list = payload.get('headers', [])
+        sender_header = next((h['value'] for h in headers_list if h['name'] == 'From'), "")
+        
+        if '<' in sender_header:
+            last_sender_email = sender_header.split('<')[1].split('>')[0]
+        else:
+            last_sender_email = sender_header
+            
+        last_sender_email = last_sender_email.strip().lower()
+        my_email = my_email.strip().lower()
+        
+        return last_sender_email == my_email
+    except Exception as e:
+        print(f"      ⚠️ Warning: Could not check thread history: {e}")
+        return False
+
 def process_replies():
-    print("Running Replier Bot (Universal Smart Sales & Multi-Account)...")
+    print("Running Replier Bot (Aggressive Sales & Continuous Loop)...")
     
     # 1. Connect to Sheet
     gc = get_gspread_client()
@@ -201,15 +217,19 @@ def process_replies():
         sender_display_name = get_sender_display_name(current_account)
         print(f"   ✍️  Signature for this batch: '{sender_display_name}'")
 
-        # Build Whitelist for THIS Account
+        # Build Whitelist for THIS Account (Sent OR Negotiating)
         valid_clients = {} # {client_email: row_index}
         for i, row in enumerate(rows[1:], start=2):
             if len(row) > gmail_col_idx and row[gmail_col_idx].strip().lower() == current_account:
-                # Add to whitelist
-                if len(row) > email_col_idx:
-                    c_email = str(row[email_col_idx]).strip().lower()
-                    if c_email:
-                        valid_clients[c_email] = i
+                # Check Status
+                if len(row) > status_col_idx:
+                    current_status = row[status_col_idx].strip()
+                    if current_status in ['Sent', 'Negotiating']:
+                        # Add to whitelist
+                        if len(row) > email_col_idx:
+                            c_email = str(row[email_col_idx]).strip().lower()
+                            if c_email:
+                                valid_clients[c_email] = i
         
         if not valid_clients:
             continue
@@ -233,6 +253,7 @@ def process_replies():
                 msg_detail = gmail_service.users().messages().get(userId='me', id=msg['id']).execute()
                 payload = msg_detail['payload']
                 headers_list = payload.get('headers', [])
+                thread_id = msg_detail.get('threadId')
                 
                 sender_header = next((h['value'] for h in headers_list if h['name'] == 'From'), None)
                 if not sender_header: continue
@@ -244,9 +265,23 @@ def process_replies():
                     from_email = sender_header
                 from_email = from_email.strip().lower()
 
-                # CHECK WHITELIST (Strict Grouped Processing)
+                # CHECK WHITELIST (Continuous Conversation Logic)
                 if from_email in valid_clients:
                     print(f"   ✅ MATCH: {from_email}")
+                    
+                    # --- CRITICAL: Thread Check (Prevent Double Reply) ---
+                    if check_last_sender_is_me(gmail_service, thread_id, current_account):
+                        print("      ✋ Last message was from ME. Waiting for client. Skipping.")
+                        # Mark read anyway? No, keep unread if I want to be reminded? 
+                        # Actually, if I sent the last one, why is this unread? 
+                        # Maybe the client sent 2 emails. The first one I replied to. The second one (this one) is later?
+                        # If check_last_sender_is_me returns True, it means my reply is the LATEST.
+                        # So this unread message is BEHIND my reply.
+                        # So I should mark this 'old' unread message as read to clear queue.
+                        gmail_service.users().messages().modify(userId='me', id=msg['id'], body={'removeLabelIds': ['UNREAD']}).execute()
+                        continue
+                    # -----------------------------------------------------
+
                     row_idx = valid_clients[from_email]
                     row_data = rows[row_idx - 1]
                     
@@ -273,7 +308,7 @@ def process_replies():
                     images = find_images(gmail_service, 'me', msg['id'], payload)
                     subject = next((h['value'] for h in headers_list if h['name'] == 'Subject'), "Re: Conversation")
 
-                    print(f"      🧠 Generating Smart Sales Reply for {client_name}...")
+                    print(f"      🧠 Generating AGGRESSIVE Sales Reply for {client_name}...")
                     model = genai.GenerativeModel('gemini-2.5-flash')
                     
                     intent = "Negotiating"
@@ -297,15 +332,21 @@ def process_replies():
                             ai_reply_text = "I received the image but couldn't verify it automatically. Checking manually."
                             new_status = "Payment Pending"
                     else:
-                        # 5. Universal Smart Sales Prompt with Dynamic Signature
-                        prompt = f"""You are a highly intelligent and friendly Sales Manager at {sender_display_name}. You are speaking to {client_name} about {skill}. The Deal: You can offer them a special price of {offer_price} (includes {free_gift}). The User Said: "{email_body}"
+                        # 5. Wolf of Wall Street Persona (Aggressive)
+                        prompt = f"""You are an elite Sales Closer for {sender_display_name}. You do not just 'answer questions' — you overcome objections and close deals. You are speaking to {client_name} about {skill}.
 
-Your Instructions:
-1. Language Matching: DETECT the language of the user's email. You MUST reply in the SAME language (e.g., if Hindi, reply in Hindi).
-2. Conversational Flow: If they ask a general question, answer it smartly. If they ask about price, pitch the deal. Be natural, not robotic.
-3. Goal: Gently guide them to accept the deal at {offer_price}.
-4. Tone: Professional but warm. Keep it under 100 words.
-5. Sign-off: "Best regards, {sender_display_name}"
+The Deal: Special price of {offer_price} (includes {free_gift}).
+The User Said: "{email_body}"
+
+Strategy:
+1. Language: Reply in the SAME language as the user (DETECT IT).
+2. If they say price is high -> Sell the ROI and Value.
+3. If they delay -> Create Urgency (Offer expires soon).
+4. If they ask details -> Answer briefly and IMMEDIATELY ask for the payment.
+5. Never say just 'Thanks'. Always end with a Closing Question (e.g., 'Ready to start?', 'Shall I send the link?').
+6. Be polite but PERSISTENT. Get the order.
+7. Keep it under 100 words.
+8. Sign-off: "Best regards, {sender_display_name}"
 """
                         try:
                             resp = model.generate_content(prompt)
@@ -318,7 +359,7 @@ Your Instructions:
                             ai_reply_text = f"Thanks for your interest, {client_name}. I can offer you a special price of {offer_price}. Shall we proceed?\n\nBest regards,\n{sender_display_name}"
 
                     # Send Reply
-                    msg_obj = create_message(current_account, from_email, subject, ai_reply_text, thread_id=msg_detail['threadId'])
+                    msg_obj = create_message(current_account, from_email, subject, ai_reply_text, thread_id=msg_detail.get('threadId'))
                     send_message(gmail_service, 'me', msg_obj)
                     
                     # Update Sheet
