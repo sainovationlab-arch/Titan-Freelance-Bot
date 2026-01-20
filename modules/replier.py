@@ -3,6 +3,8 @@ import random
 import json
 import time
 import base64
+import io
+from PIL import Image
 from email.mime.text import MIMEText
 from email.utils import parseaddr
 import google.generativeai as genai
@@ -15,6 +17,7 @@ if gemini_keys_env:
     keys = [k.strip() for k in gemini_keys_env.split(',') if k.strip()]
     if keys:
         selected_key = random.choice(keys)
+        # Using flash model which supports vision
         genai.configure(api_key=selected_key)
         print(f"🔑 Gemini configured with 1 of {len(keys)} keys.")
         print(f"📦 Installed GenAI Version: {genai.__version__}")
@@ -40,6 +43,57 @@ def get_email_body(payload):
                 # recurse if nested
                 return get_email_body(part)
     return ""
+
+def get_attachments(payload):
+    """
+    Recursively extracts image attachments (JPG, PNG, JPEG).
+    Returns a list of PIL Image objects.
+    """
+    images = []
+    parts = payload.get('parts')
+    
+    if parts:
+        for part in parts:
+            mime_type = part.get('mimeType', '')
+            if mime_type.startswith('image/') and part.get('body') and part.get('body').get('attachmentId'):
+                # Fetching details would happen here
+                pass 
+                
+    return []
+
+def get_image_data_from_part(service, user_id, msg_id, part):
+    """Helper to fetch image data from a message part."""
+    if 'body' in part and 'attachmentId' in part['body']:
+        att_id = part['body']['attachmentId']
+        att = service.users().messages().attachments().get(userId=user_id, messageId=msg_id, id=att_id).execute()
+        data = att['data']
+    elif 'body' in part and 'data' in part['body']:
+        data = part['body']['data']
+    else:
+        return None
+    
+    if data:
+        file_data = base64.urlsafe_b64decode(data.encode('UTF-8'))
+        return Image.open(io.BytesIO(file_data))
+    return None
+
+def find_images(service, user_id, msg_id, payload):
+    """Recursively find and fetch images."""
+    found_images = []
+    parts = payload.get('parts')
+    if not parts:
+        # Check if main body is image (rare for multipart)
+        if payload.get('mimeType', '').startswith('image/'):
+            img = get_image_data_from_part(service, user_id, msg_id, payload)
+            if img: found_images.append(img)
+    else:
+        for part in parts:
+            if part.get('mimeType', '').startswith('image/'):
+                img = get_image_data_from_part(service, user_id, msg_id, part)
+                if img: found_images.append(img)
+            elif part.get('parts'):
+                found_images.extend(find_images(service, user_id, msg_id, part))
+    return found_images
 
 def create_message(sender, to, subject, message_text, thread_id=None):
     """Create a message for an email."""
@@ -98,6 +152,14 @@ def process_replies():
         final_price_col_idx = headers.index('Final Price') 
         portfolio_col_idx = headers.index('Portfolio Link')
         
+        # Payment Status Column
+        try:
+            payment_status_col_idx = headers.index('Payment Status')
+        except ValueError:
+             # Fallback to hardcoded Column U (Index 20 if 0-based)
+             print("⚠️ 'Payment Status' column not found independently. Assuming Column U.")
+             payment_status_col_idx = 20 # Column U
+             
     except ValueError as e:
         print(f"❌ Missing column in sheet: {e}")
         return
@@ -130,18 +192,11 @@ def process_replies():
     # Build VIP Whitelist
     valid_clients = {} # {email: row_index} with row_index being actual integer index in 'rows'
     
-    # FIX: Remove restrictive status check. Monitor ALL valid emails in the sheet regardless of status.
-    # This ensures clients in 'Followed Up', 'Sent', or 'Negotiating' are all responded to.
-    
-    for i, row in enumerate(rows[1:], start=2): # Start=2 because row 1 is header, so index 2 matches sheet row 2
+    for i, row in enumerate(rows[1:], start=2): 
         # Safety check for short rows
         if len(row) > email_col_idx:
             raw_email = row[email_col_idx]
-            
             clean_email = str(raw_email).strip().lower()
-            
-            # Simple Filter: If email exists, we monitor it.
-            # We explicitly allow 'Followed Up' or any other status to be processed.
             if clean_email:
                 valid_clients[clean_email] = i
     
@@ -153,7 +208,6 @@ def process_replies():
         return
 
     try:
-        # q='is:unread' or labelIds=['UNREAD']
         results = gmail_service.users().messages().list(userId='me', labelIds=['UNREAD'], q='-category:promotions -category:social').execute()
         messages = results.get('messages', [])
     except Exception as e:
@@ -202,7 +256,6 @@ def process_replies():
                     client_name = row_data[name_col_idx]
                     skill = row_data[skill_col_idx]
                     offer_price = row_data[offer_price_col_idx]
-                    # Handle Final Price missing gracefully if needed
                     final_price = row_data[final_price_col_idx] if len(row_data) > final_price_col_idx else offer_price
                     portfolio = row_data[portfolio_col_idx]
                 else:
@@ -215,12 +268,51 @@ def process_replies():
                 # 1. Fetch Request Body
                 email_body = get_email_body(payload)
                 
-                # 2. Generate AI Reply with Intent Detection mechanism
-                print(f"🧠 Generating AI Reply & Analyzing Intent for {client_name} regarding {skill}...")
-                model = genai.GenerativeModel('gemini-2.5-flash')
+                # 2. Check for Images
+                images = find_images(gmail_service, 'me', msg['id'], payload)
                 
-                # Simplified Prompt: Intent Detection + Reply ONLY
-                prompt = f"""
+                # 3. AI Analysis
+                print(f"🧠 Generating AI Reply for {client_name} regarding {skill}...")
+                model = genai.GenerativeModel('gemini-1.5-flash')
+                
+                if images:
+                     print(f"📸 Found {len(images)} images. Using Vision API.")
+                     # VISION PROMPT
+                     prompt = ["Analyze this image. Is this a valid payment screenshot showing a 'Successful' transaction? Extract the Amount. If it looks like a valid receipt for the expected amount, return 'VERIFIED'. If it's unclear or fake, return 'CHECK_MANUAL'. Output just the status word first, then a newline, then a short reason.", images[0]]
+                     
+                     try:
+                         response = model.generate_content(prompt)
+                         text_response = response.text.strip()
+                         vision_status = "CHECK_MANUAL"
+                         if "VERIFIED" in text_response:
+                             vision_status = "VERIFIED"
+                         
+                         if vision_status == "VERIFIED":
+                             intent = "Ordered" 
+                             ai_reply_text = "Payment received! Sending your files shortly."
+                             new_payment_status = "Paid"
+                             new_status = "Ordered"
+                             print("✅ Payment VERIFIED by AI.")
+                         else:
+                             intent = "Negotiating"
+                             ai_reply_text = "I received the image, but I need to verify it manually. Please wait."
+                             new_payment_status = "Pending"
+                             new_status = "Payment Pending"
+                             print("⚠️ Payment Unclear. Marked for Manual Check.")
+                             
+                         # Update Payment Status
+                         if payment_status_col_idx != -1:
+                             worksheet.update_cell(row_idx, payment_status_col_idx + 1, new_payment_status)
+
+                     except Exception as e:
+                         print(f"❌ Vision Analysis Failed: {e}")
+                         intent = "Negotiating"
+                         ai_reply_text = "Thanks for the image. checking it now."
+                         new_status = "Negotiating"
+
+                else:
+                    # TEXT ONLY PROMPT
+                    prompt = f'''
 You are a professional business developer for {client_name}. 
 Context: We offered "{skill}" for {offer_price}. The absolute lowest we can go is {final_price}. 
 Client said: "{email_body}" 
@@ -245,34 +337,36 @@ OUTPUT FORMAT (JSON ONLY):
   "intent": "Ordered" | "Negotiating" | "Stop",
   "reply_text": "Your email reply here"
 }}
-"""
-                try:
-                    response = model.generate_content(prompt)
-                    # Clean up json if markdown code blocks are present
-                    clean_text = response.text.strip()
-                    if clean_text.startswith("```json"):
-                        clean_text = clean_text[7:]
-                    if clean_text.startswith("```"):
-                         clean_text = clean_text[3:] 
-                    if clean_text.endswith("```"):
-                        clean_text = clean_text[:-3]
-                    
-                    data = json.loads(clean_text)
-                    intent = data.get("intent", "Negotiating")
-                    ai_reply_text = data.get("reply_text", "Thanks for your email. We will get back to you soon.")
-                    
-                except Exception as e:
-                    print(f"❌ AI Analysis Failed: {e}. Falling back to default.")
-                    intent = "Negotiating"
-                    ai_reply_text = "Thanks for your email! We will proceed with the discussion."
+'''
+                    try:
+                        response = model.generate_content(prompt)
+                        # Clean up json if markdown code blocks are present
+                        clean_text = response.text.strip()
+                        if clean_text.startswith("```json"):
+                            clean_text = clean_text[7:]
+                        if clean_text.startswith("```"):
+                             clean_text = clean_text[3:] 
+                        if clean_text.endswith("```"):
+                            clean_text = clean_text[:-3]
+                        
+                        data = json.loads(clean_text)
+                        intent = data.get("intent", "Negotiating")
+                        ai_reply_text = data.get("reply_text", "Thanks for your email. We will get back to you soon.")
+                        new_status = intent # Default mapping
+                        
+                        # Map Intent to specific Status strings if needed
+                        status_map = {
+                            "Ordered": "Ordered",
+                            "Negotiating": "Negotiating", 
+                            "Stop": "Stop"
+                        }
+                        new_status = status_map.get(intent, "Negotiating")
 
-                # Map Intent to Status
-                status_map = {
-                    "Ordered": "Ordered",
-                    "Negotiating": "Negotiating", 
-                    "Stop": "Stop"
-                }
-                new_status = status_map.get(intent, "Negotiating")
+                    except Exception as e:
+                        print(f"❌ AI Analysis Failed: {e}. Falling back to default.")
+                        intent = "Negotiating"
+                        ai_reply_text = "Thanks for your email! We will proceed with the discussion."
+                        new_status = "Negotiating"
 
                 # 3. Create & Send Message DIRECTLY
                 msg_object = create_message(current_bot_email, from_email, subject, ai_reply_text, thread_id=msg_detail['threadId'])
@@ -284,7 +378,7 @@ OUTPUT FORMAT (JSON ONLY):
                 # 5. Mark as Read
                 gmail_service.users().messages().modify(userId='me', id=msg['id'], body={'removeLabelIds': ['UNREAD']}).execute()
                 
-                print(f"🤖 AI Reply SENT. Intent: {intent}. Sheet updated to '{new_status}'.")
+                print(f"🤖 AI Reply SENT. Intent: {intent if 'intent' in locals() else 'Vision'}. Sheet updated to '{new_status}'.")
             
             else:
                 # Ignore silently

@@ -9,3 +9,4 @@ schedule
 pytz
 requests
 beautifulsoup4
+Pillow
