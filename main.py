@@ -12,6 +12,14 @@ except Exception as e:
     print(f'❌ Outreach Error: {e}')
 
 try:
+    print('--- Step 2: Follow-up Bot ---')
+    from modules.followup import run_followup
+    run_followup()
+    print('✅ Follow-up Finished')
+except Exception as e:
+    print(f'❌ Follow-up Error: {e}')
+
+try:
     print('--- Step 2: Replier ---')
     process_replies()
     print('✅ Replier Finished')
