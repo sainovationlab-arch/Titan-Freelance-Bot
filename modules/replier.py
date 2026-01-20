@@ -96,7 +96,7 @@ def send_message(service, user_id, message):
         return None
 
 def process_replies():
-    print("Running Replier Bot (Grouped Processing)...")
+    print("Running Replier Bot (Smart Sales & Multi-Account)...")
     
     # 1. Connect to Sheet
     gc = get_gspread_client()
@@ -125,6 +125,7 @@ def process_replies():
         offer_price_col_idx = headers.index('Offer Price')
         final_price_col_idx = headers.index('Final Price') 
         portfolio_col_idx = headers.index('Portfolio Link')
+        free_gift_col_idx = headers.index('Free Gift')
         
         try:
             payment_status_col_idx = headers.index('Payment Status')
@@ -155,18 +156,19 @@ def process_replies():
             print(f"⚠️ Token not found for {current_account}. Skipping.")
             continue
             
-        # Verify Identity
+        # Verify Identity (Safety Check)
         try:
              profile = gmail_service.users().getProfile(userId='me').execute()
              logged_in_email = profile.get('emailAddress').lower()
              if logged_in_email != current_account:
-                 print(f"❌ Mismatch! Logged in as {logged_in_email}, but expected {current_account}. Skipping to be safe.")
+                 print(f"❌ Mismatch! Logged in as {logged_in_email}, but expected {current_account}. Skipping safely.")
                  continue
         except Exception as e:
             print(f"❌ Error verifying identity for {current_account}: {e}")
             continue
 
         # Build Whitelist for THIS Account
+        # Strict Filtering: Only rows belonging to current_account
         valid_clients = {} # {client_email: row_index}
         for i, row in enumerate(rows[1:], start=2):
             if len(row) > gmail_col_idx and row[gmail_col_idx].strip().lower() == current_account:
@@ -176,7 +178,6 @@ def process_replies():
                     if c_email:
                         valid_clients[c_email] = i
         
-        print(f"   ↳ Monitoring {len(valid_clients)} active clients for this account.")
         if not valid_clients:
             continue
 
@@ -189,7 +190,6 @@ def process_replies():
             continue
             
         if not messages:
-            print("   ↳ No unread messages.")
             continue
             
         print(f"   ↳ Found {len(messages)} unread messages. Processing...")
@@ -211,36 +211,43 @@ def process_replies():
                     from_email = sender_header
                 from_email = from_email.strip().lower()
 
-                # CHECK WHITELIST
+                # CHECK WHITELIST (Strict Grouped Processing)
                 if from_email in valid_clients:
                     print(f"   ✅ MATCH: {from_email}")
                     row_idx = valid_clients[from_email]
-                    # Logic to generate reply...
                     row_data = rows[row_idx - 1]
                     
-                    # Extract Details
+                    # 3. Data Extraction (Know the Product)
                     client_name = row_data[name_col_idx]
                     skill = row_data[skill_col_idx]
                     offer_price = row_data[offer_price_col_idx]
-                    final_price = row_data[final_price_col_idx] if len(row_data) > final_price_col_idx else offer_price
-                    portfolio = row_data[portfolio_col_idx]
+                    free_gift = row_data[free_gift_col_idx]
                     
-                    # Generate Reply
+                    # Get Body
                     email_body = get_email_body(payload)
-                    images = find_images(gmail_service, 'me', msg['id'], payload)
+                    lower_body = email_body.lower()
                     
+                    # 2. Hard-Coded Negative Filter (Stop Logic)
+                    stop_keywords = ["stop", "unsubscribe", "remove", "not interested", "spam", "no thanks"]
+                    if any(keyword in lower_body for keyword in stop_keywords):
+                         print("      ⛔ OPT-OUT DETECTED. Marking as 'Opt-out'.")
+                         worksheet.update_cell(row_idx, status_col_idx + 1, "Opt-out")
+                         # Mark as read
+                         gmail_service.users().messages().modify(userId='me', id=msg['id'], body={'removeLabelIds': ['UNREAD']}).execute()
+                         continue
+                    # -------------------------------
+
+                    images = find_images(gmail_service, 'me', msg['id'], payload)
                     subject = next((h['value'] for h in headers_list if h['name'] == 'Subject'), "Re: Conversation")
 
-                    # Copy AI Logic from previous version (simplified for brevity but functional)
-                    print(f"      🧠 Generating Reply for {client_name}...")
+                    print(f"      🧠 Generating Sales Reply for {client_name}...")
                     model = genai.GenerativeModel('gemini-1.5-flash')
                     
                     intent = "Negotiating"
-                    ai_reply_text = "Thanks."
                     new_status = "Negotiating"
 
+                    # Vision Logic (Payment Check)
                     if images:
-                        # Vision Logic
                         prompt = ["Analyze this image. Is this a valid payment screenshot showing a 'Successful' transaction? Extract the Amount. If it looks like a valid receipt for the expected amount, return 'VERIFIED'. If it's unclear or fake, return 'CHECK_MANUAL'.", images[0]]
                         try:
                             resp = model.generate_content(prompt)
@@ -254,25 +261,23 @@ def process_replies():
                                 ai_reply_text = "Received the image, checking manually."
                                 new_status = "Payment Pending"
                         except:
-                            pass
+                            ai_reply_text = "I received the image but couldn't verify it automatically. Checking manually."
+                            new_status = "Payment Pending"
                     else:
-                        # Text Logic
-                        prompt = f'''
-You are a professional business developer for {client_name}.
-Context: We offered "{skill}" for {offer_price}. Lowest: {final_price}.
+                        # 4. The Salesman Persona
+                        prompt = f"""You are a Sales Manager at Solanki Art. The client {client_name} is interested in {skill}. Your goal is to CLOSE. Tell them the price is usually high but for them it is {offer_price}. Mention the {free_gift} as a bonus. Ask to send the invoice. Be professional and persuasive.
+
 Client said: "{email_body}"
-TASK: Classify Intent (Ordered, Negotiating, Stop) and Generate Reply (under 100 words).
-OUTPUT JSON: {{"intent": "...", "reply_text": "..."}}
-'''
+"""
                         try:
                             resp = model.generate_content(prompt)
-                            clean = resp.text.strip().replace("```json","").replace("```","")
-                            data = json.loads(clean)
-                            intent = data.get("intent", "Negotiating")
-                            ai_reply_text = data.get("reply_text", "We will get back to you.")
-                            new_status = intent
+                            ai_reply_text = resp.text.strip()
+                            if ai_reply_text.startswith("```"): ai_reply_text = ai_reply_text.replace("```","")
+                            
+                            new_status = "Negotiating" # 5. Status Update
                         except Exception as e:
                             print(f"      AI Error: {e}")
+                            ai_reply_text = f"Thanks for your interest, {client_name}. The special price is {offer_price}. Shall I send the invoice?"
 
                     # Send Reply
                     msg_obj = create_message(current_account, from_email, subject, ai_reply_text, thread_id=msg_detail['threadId'])
