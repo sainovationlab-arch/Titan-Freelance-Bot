@@ -3,6 +3,7 @@ import random
 import json
 import time
 import base64
+import re
 import io
 from PIL import Image
 from email.mime.text import MIMEText
@@ -95,6 +96,35 @@ def send_message(service, user_id, message):
         print(f"An error occurred sending message: {e}")
         return None
 
+def get_sender_display_name(email_address):
+    """
+    Derives a display name from the email address.
+    Logic:
+    - Get username part
+    - Remove numbers
+    - Add spaces before 'art', 'lab'
+    - Title Case
+    """
+    try:
+        local_part = email_address.split('@')[0]
+        # Remove digits
+        local_part = re.sub(r'\d+', '', local_part)
+        
+        # Add spaces (simple string replacement as mostly safe for these specific keywords)
+        # Using case-insensitive replacement logic if needed, but simple replace works for standard usernames
+        # To be cleaner:
+        local_part = local_part.replace('art', ' Art').replace('lab', ' Lab')
+        
+        # Title case
+        clean_name = local_part.strip().title()
+        
+        # Collapse extra spaces if any
+        clean_name = re.sub(r'\s+', ' ', clean_name)
+        
+        return clean_name
+    except Exception:
+        return "Solanki Art"
+
 def process_replies():
     print("Running Replier Bot (Universal Smart Sales & Multi-Account)...")
     
@@ -166,6 +196,10 @@ def process_replies():
         except Exception as e:
             print(f"❌ Error verifying identity for {current_account}: {e}")
             continue
+            
+        # 1. Derive Name from Email (Dynamic Signature)
+        sender_display_name = get_sender_display_name(current_account)
+        print(f"   ✍️  Signature for this batch: '{sender_display_name}'")
 
         # Build Whitelist for THIS Account
         valid_clients = {} # {client_email: row_index}
@@ -263,14 +297,15 @@ def process_replies():
                             ai_reply_text = "I received the image but couldn't verify it automatically. Checking manually."
                             new_status = "Payment Pending"
                     else:
-                        # 5. Universal Smart Sales Prompt
-                        prompt = f"""You are a highly intelligent and friendly Sales Manager at Solanki Art. You are speaking to {client_name} about {skill}. The Deal: You can offer them a special price of {offer_price} (includes {free_gift}). The User Said: "{email_body}"
+                        # 5. Universal Smart Sales Prompt with Dynamic Signature
+                        prompt = f"""You are a highly intelligent and friendly Sales Manager at {sender_display_name}. You are speaking to {client_name} about {skill}. The Deal: You can offer them a special price of {offer_price} (includes {free_gift}). The User Said: "{email_body}"
 
 Your Instructions:
 1. Language Matching: DETECT the language of the user's email. You MUST reply in the SAME language (e.g., if Hindi, reply in Hindi).
 2. Conversational Flow: If they ask a general question, answer it smartly. If they ask about price, pitch the deal. Be natural, not robotic.
 3. Goal: Gently guide them to accept the deal at {offer_price}.
 4. Tone: Professional but warm. Keep it under 100 words.
+5. Sign-off: "Best regards, {sender_display_name}"
 """
                         try:
                             resp = model.generate_content(prompt)
@@ -280,7 +315,7 @@ Your Instructions:
                             new_status = "Negotiating" # Status Update
                         except Exception as e:
                             print(f"      AI Error: {e}")
-                            ai_reply_text = f"Thanks for your interest, {client_name}. I can offer you a special price of {offer_price}. Shall we proceed?"
+                            ai_reply_text = f"Thanks for your interest, {client_name}. I can offer you a special price of {offer_price}. Shall we proceed?\n\nBest regards,\n{sender_display_name}"
 
                     # Send Reply
                     msg_obj = create_message(current_account, from_email, subject, ai_reply_text, thread_id=msg_detail['threadId'])
