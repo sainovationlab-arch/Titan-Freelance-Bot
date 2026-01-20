@@ -96,7 +96,7 @@ def send_message(service, user_id, message):
         return None
 
 def process_replies():
-    print("Running Replier Bot (Smart Sales & Multi-Account)...")
+    print("Running Replier Bot (Universal Smart Sales & Multi-Account)...")
     
     # 1. Connect to Sheet
     gc = get_gspread_client()
@@ -168,7 +168,6 @@ def process_replies():
             continue
 
         # Build Whitelist for THIS Account
-        # Strict Filtering: Only rows belonging to current_account
         valid_clients = {} # {client_email: row_index}
         for i, row in enumerate(rows[1:], start=2):
             if len(row) > gmail_col_idx and row[gmail_col_idx].strip().lower() == current_account:
@@ -227,7 +226,7 @@ def process_replies():
                     email_body = get_email_body(payload)
                     lower_body = email_body.lower()
                     
-                    # 2. Hard-Coded Negative Filter (Stop Logic)
+                    # 4. Hard-Coded Negative Filter (Stop Logic)
                     stop_keywords = ["stop", "unsubscribe", "remove", "not interested", "spam", "no thanks"]
                     if any(keyword in lower_body for keyword in stop_keywords):
                          print("      ⛔ OPT-OUT DETECTED. Marking as 'Opt-out'.")
@@ -240,7 +239,7 @@ def process_replies():
                     images = find_images(gmail_service, 'me', msg['id'], payload)
                     subject = next((h['value'] for h in headers_list if h['name'] == 'Subject'), "Re: Conversation")
 
-                    print(f"      🧠 Generating Sales Reply for {client_name}...")
+                    print(f"      🧠 Generating Smart Sales Reply for {client_name}...")
                     model = genai.GenerativeModel('gemini-1.5-flash')
                     
                     intent = "Negotiating"
@@ -264,20 +263,24 @@ def process_replies():
                             ai_reply_text = "I received the image but couldn't verify it automatically. Checking manually."
                             new_status = "Payment Pending"
                     else:
-                        # 4. The Salesman Persona
-                        prompt = f"""You are a Sales Manager at Solanki Art. The client {client_name} is interested in {skill}. Your goal is to CLOSE. Tell them the price is usually high but for them it is {offer_price}. Mention the {free_gift} as a bonus. Ask to send the invoice. Be professional and persuasive.
+                        # 5. Universal Smart Sales Prompt
+                        prompt = f"""You are a highly intelligent and friendly Sales Manager at Solanki Art. You are speaking to {client_name} about {skill}. The Deal: You can offer them a special price of {offer_price} (includes {free_gift}). The User Said: "{email_body}"
 
-Client said: "{email_body}"
+Your Instructions:
+1. Language Matching: DETECT the language of the user's email. You MUST reply in the SAME language (e.g., if Hindi, reply in Hindi).
+2. Conversational Flow: If they ask a general question, answer it smartly. If they ask about price, pitch the deal. Be natural, not robotic.
+3. Goal: Gently guide them to accept the deal at {offer_price}.
+4. Tone: Professional but warm. Keep it under 100 words.
 """
                         try:
                             resp = model.generate_content(prompt)
                             ai_reply_text = resp.text.strip()
                             if ai_reply_text.startswith("```"): ai_reply_text = ai_reply_text.replace("```","")
                             
-                            new_status = "Negotiating" # 5. Status Update
+                            new_status = "Negotiating" # Status Update
                         except Exception as e:
                             print(f"      AI Error: {e}")
-                            ai_reply_text = f"Thanks for your interest, {client_name}. The special price is {offer_price}. Shall I send the invoice?"
+                            ai_reply_text = f"Thanks for your interest, {client_name}. I can offer you a special price of {offer_price}. Shall we proceed?"
 
                     # Send Reply
                     msg_obj = create_message(current_account, from_email, subject, ai_reply_text, thread_id=msg_detail['threadId'])
