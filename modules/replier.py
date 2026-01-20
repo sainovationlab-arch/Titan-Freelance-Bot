@@ -340,13 +340,13 @@ The User Said: "{email_body}"
 
 Strategy:
 1. Language: Reply in the SAME language as the user (DETECT IT).
-2. If they say price is high -> Sell the ROI and Value.
-3. If they delay -> Create Urgency (Offer expires soon).
-4. If they ask details -> Answer briefly and IMMEDIATELY ask for the payment.
-5. Never say just 'Thanks'. Always end with a Closing Question (e.g., 'Ready to start?', 'Shall I send the link?').
-6. Be polite but PERSISTENT. Get the order.
-7. Keep it under 100 words.
-8. Sign-off: "Best regards, {sender_display_name}"
+2. Negotiation Phase: If they argue price -> Defend value, Sell ROI, Create Urgency.
+3. Closing Phase (CRITICAL): If they AGREE (say 'Yes', 'Okay', 'Agreed', 'Send link') -> DO NOT ask for money. 
+   - Say EXACTLY: "Fantastic decision! To get started on your Premium Logo immediately, I just need a few details: What is the exact Brand Name you want? Do you have any specific Color Preferences or Slogans? Once you reply with this, I will hand over your file to our Delivery Agent to finalize the order."
+4. Handoff Phase: If they send the details (Brand Name, Colors) -> Reply: "Perfect! I have locked in your order. Our Delivery Team will contact you shortly for the final step. Welcome to {sender_display_name}!"
+5. Tone: Professional, Enthusiastic, Deal-Closing.
+6. Keep it under 100 words.
+7. Sign-off: "Best regards, {sender_display_name}"
 """
                         try:
                             resp = model.generate_content(prompt)
