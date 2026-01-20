@@ -40,7 +40,6 @@ jobs:
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         GMAIL_CREDENTIALS_JSON: ${{ secrets.GMAIL_CREDENTIALS_JSON }}
       run: |
-        python -m modules.qualifier
         python main.py
         python -m modules.delivery
         python -m modules.followup
