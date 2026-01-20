@@ -96,9 +96,6 @@ def process_replies():
         skill_col_idx = headers.index('Selected Skill')
         offer_price_col_idx = headers.index('Offer Price')
         final_price_col_idx = headers.index('Final Price') # Assuming this exists or using Offer Price as fallback? User said "Final Price" exists.
-        skill_col_idx = headers.index('Selected Skill')
-        offer_price_col_idx = headers.index('Offer Price')
-        final_price_col_idx = headers.index('Final Price') # Assuming this exists or using Offer Price as fallback? User said "Final Price" exists.
         portfolio_col_idx = headers.index('Portfolio Link')
         
         # New Column for Order Requirements
@@ -228,7 +225,6 @@ def process_replies():
                 model = genai.GenerativeModel('gemini-2.5-flash')
                 
                 # Enhanced Prompt for Intent Detection + Reply
-                # Refined Prompt Construction
                 prompt = f"""
 You are a professional business developer for {client_name}. 
 Context: We offered "{skill}" for {offer_price}. The absolute lowest we can go is {final_price}. 
@@ -261,7 +257,7 @@ OUTPUT FORMAT (JSON ONLY):
   "reply_text": "Your email reply here"
 }}
 """
-
+                try:
                     response = model.generate_content(prompt)
                     # Clean up json if markdown code blocks are present
                     clean_text = response.text.strip()
