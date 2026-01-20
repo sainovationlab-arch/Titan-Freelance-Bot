@@ -95,7 +95,7 @@ def process_replies():
         # AI Data Columns
         skill_col_idx = headers.index('Selected Skill')
         offer_price_col_idx = headers.index('Offer Price')
-        final_price_col_idx = headers.index('Final Price') # Assuming this exists or using Offer Price as fallback? User said "Final Price" exists.
+        final_price_col_idx = headers.index('Final Price') 
         portfolio_col_idx = headers.index('Portfolio Link')
         
         # New Column for Order Requirements
@@ -207,7 +207,7 @@ def process_replies():
                     client_name = row_data[name_col_idx]
                     skill = row_data[skill_col_idx]
                     offer_price = row_data[offer_price_col_idx]
-                    # Handle Final Price missing gracefully if needed, but assuming strict structure
+                    # Handle Final Price missing gracefully if needed
                     final_price = row_data[final_price_col_idx] if len(row_data) > final_price_col_idx else offer_price
                     portfolio = row_data[portfolio_col_idx]
                 else:
